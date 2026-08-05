@@ -282,7 +282,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_voice:
                 await send_voice_response(update, "Perintah terminal sudah selesai dieksekusi Bos.")
 
-        # D. INTENT: RUN
+        # D. INTENT: RUN (Dengan Self-Healing)
         elif intent == "RUN":
             target_fn = clean_query.replace("python", "").replace("run", "").strip()
             target_fp = None
@@ -291,11 +291,10 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target_fp = os.path.join(root, target_fn)
                     break
             if target_fp:
-                await safe_reply(update, f"⚙️ Menjalankan <code>{target_fn}</code>...")
-                r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=20, cwd=os.path.dirname(target_fp))
-                out = r_res.stdout if r_res.stdout else "(Program selesai)"
-                await safe_reply(update, f"🖥️ <b>OUTPUT PROGRAM:</b>\n\n{out}")
-                if is_voice: await send_voice_response(update, f"Program {target_fn} berhasil dijalankan Bos.")
+                # Jalankan menggunakan fungsi self-healing otonom
+                success = await run_with_self_healing(update, target_fp)
+                if success and is_voice:
+                    await send_voice_response(update, f"Program {target_fn} berhasil diperbaiki dan dijalankan Bos.")
             else:
                 await safe_reply(update, f"❌ File <code>{target_fn}</code> tidak ditemukan di D:\\Jarvis-Agent")
 
@@ -336,6 +335,83 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <i>'Halo Jarvis, hari ini ceritain lelucon dong'</i>"
     )
     await safe_reply(update, msg, is_html=True)
+
+async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
+    """Fungsi otonom untuk menjalankan script, mendeteksi error, dan memperbaiki diri (self-healing)"""
+    file_dir = os.path.dirname(target_fp)
+    file_name = os.path.basename(target_fp)
+    
+    for attempt in range(1, max_retries + 1):
+        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> (Percobaan ke-{attempt}/{max_retries})...")
+        
+        # Eksekusi script python
+        r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=25, cwd=file_dir)
+        
+        # Jika BERHASIL (Exit code 0)
+        if r_res.returncode == 0:
+            out = r_res.stdout if r_res.stdout else "(Program selesai tanpa output)"
+            await safe_reply(update, f"✅ <b>BERHASIL (Sukses):</b>\n\n{out}")
+            return True
+            
+        # Jika GAGAL (Ada error traceback)
+        error_output = r_res.stderr if r_res.stderr else r_res.stdout
+        await safe_reply(update, f"⚠️ <b>TERDETEKSI ERROR PADA PERCOBAAN {attempt}:</b>\n<pre>{error_output[:1000]}</pre>\n\n🛡️ <i>Memulai prosedur Self-Healing & Auto-Fixing...</i>")
+        
+        # Baca isi file kode yang error saat ini
+        try:
+            with open(target_fp, "r", encoding="utf-8") as f:
+                current_code = f.read()
+        except Exception as e:
+            await safe_reply(update, f"❌ Gagal membaca file kode: {str(e)}")
+            return False
+            
+        # Panggil Gemini untuk memperbaiki kode yang error
+        fix_prompt = f"""
+        Kamu adalah AI SENIOR DEBUGGER & SELF-HEALING AGENT.
+        Script Python ini mengalami error saat dieksekusi.
+        
+        NAMA FILE: {file_name}
+        
+        ISI KODE SAAT INI:
+        ```python
+        {current_code}
+        ```
+        
+        PESAN ERROR / TRACEBACK:
+        {error_output}
+        
+        Tugasmu:
+        Perbaiki kode tersebut agar error di atas hilang dan program bisa berjalan normal.
+        Output HARUS JSON MURNI tanpa markdown ```json:
+        {{
+            "explanation": "penjelasan singkat apa yang diperbaiki",
+            "fixed_code": "isi kode python lengkap yang sudah diperbaiki"
+        }}
+        """
+        
+        try:
+            fix_res = client.models.generate_content(model=MODEL_NAME, contents=fix_prompt)
+            clean_json_str = fix_res.text.replace("```json", "").replace("```", "").strip()
+            fix_data = json.loads(clean_json_str)
+            
+            explanation = fix_data.get("explanation", "Perbaikan bug otonom")
+            fixed_code = fix_data.get("fixed_code", "")
+            
+            if fixed_code:
+                # Timpa file lama dengan kode hasil perbaikan mandiri
+                with open(target_fp, "w", encoding="utf-8") as f:
+                    f.write(fixed_code)
+                await safe_reply(update, f"🔧 <b>Self-Healing Patch diterapkan:</b> {explanation}")
+            else:
+                await safe_reply(update, "❌ Gagal menghasilkan kode perbaikan.")
+                return False
+                
+        except Exception as e:
+            await safe_reply(update, f"🚨 Gagal memproses Auto-Fix: {str(e)}")
+            return False
+            
+    await safe_reply(update, f"❌ Program <code>{file_name}</code> gagal diperbaiki setelah {max_retries} kali percobaan otonom.")
+    return False
 
 def main():
     print("🤖 Jarvis Phase 12 (Unified Intent Engine) Running...")
