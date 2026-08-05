@@ -16,6 +16,8 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = "D:\\Jarvis-Agent"
 VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
+# Variabel Global untuk nama model agar mudah diganti di masa depan
+MODEL_NAME = "gemini-2.5-flash"
 
 # Memastikan API Key bersih dari spasi/karakter tersembunyi
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
@@ -119,7 +121,7 @@ def run_architect_agent(user_instruction: str) -> dict:
         "file_list": ["main.py", "README.md"]
     }}
     """
-    response = client.models.generate_content(model='gemini-2.0-flash-exp', contents=prompt)
+    response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
     clean_json = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(clean_json)
 
@@ -137,7 +139,7 @@ def run_coder_agent(user_instruction: str, blueprint_data: dict) -> dict:
         ]
     }}
     """
-    response = client.models.generate_content(model='gemini-2.0-flash-exp', contents=prompt)
+    response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
     clean_json = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(clean_json)
 
@@ -153,7 +155,7 @@ def run_reviewer_agent(coder_output: dict) -> dict:
         ]
     }}
     """
-    response = client.models.generate_content(model='gemini-2.0-flash-exp', contents=prompt)
+    response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
     clean_json = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(clean_json)
 
@@ -181,7 +183,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Transkripsi suara ke teks menggunakan Gemini
             transcribe_prompt = "Transkripsikan pesan suara ini dengan tepat dalam Bahasa Indonesia."
             t_res = client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=MODEL_NAME,
                 contents=[{"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}, transcribe_prompt]
             )
             user_input_text = t_res.text.strip()
@@ -217,7 +219,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
 
     try:
-        router_res = client.models.generate_content(model='gemini-2.0-flash-exp', contents=router_prompt)
+        router_res = client.models.generate_content(model=MODEL_NAME, contents=router_prompt)
         clean_router_json = router_res.text.replace("```json", "").replace("```", "").strip()
         parsed_intent = json.loads(clean_router_json)
 
@@ -232,7 +234,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if intent == "SEARCH":
             await safe_reply(update, f"🌐 Mencari info terbaru: '<i>{clean_query}</i>'...")
             s_res = client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=MODEL_NAME,
                 contents=f"{JARVIS_PERSONA}\n\nRangkumkan info paling baru dari internet untuk: {clean_query}",
                 config=GROUNDING_CONFIG
             )
@@ -300,7 +302,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # E. INTENT: CHAT (OBROLAN STANDARD)
         else:
             c_res = client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=MODEL_NAME,
                 contents=f"{JARVIS_PERSONA}\n\nObrolan/Pertanyaan Bos:\n{clean_query}"
             )
             
