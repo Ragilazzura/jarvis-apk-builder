@@ -1,0 +1,5 @@
+Tolong buatkan script Python untuk:
+1. Membaca data angka dari list: [10, 20, "30", 0, 50, "sepuluh"]
+2. Lakukan pembagian 100 dengan setiap angka di dalam list tersebut.
+3. Cetak hasilnya ke layar.
+4. Tangani semua potensi error (seperti pembagian dengan nol atau string yang tidak bisa diubah ke angka) secara rapi agar program tidak crash.
