@@ -10,14 +10,16 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 # Membaca dari Railway Variables (Cloud) jika ada, atau menggunakan nilai default di bawah
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6LZtiWQtCNIMNeuCo_gxGTLr2gTWbpEpV5PujYPWGWomA")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6LmCMNo3FtLpMMdBCMg5BTd9n3RfXQFdv7VIr0R5YZ1jw")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = "D:\\Jarvis-Agent"
 VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Memastikan API Key bersih dari spasi/karakter tersembunyi
+CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
+client = genai.Client(api_key=CLEAN_GEMINI_KEY)
 
 GROUNDING_CONFIG = {
     'tools': [{'google_search': {}}]
