@@ -10,7 +10,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 # Membaca dari Railway Variables (Cloud) jika ada, atau menggunakan nilai default di bawah
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6LmCMNo3FtLpMMdBCMg5BTd9n3RfXQFdv7VIr0R5YZ1jw")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
