@@ -17,7 +17,7 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 BASE_DIR = "D:\\Jarvis-Agent"
 VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
 # Variabel Global untuk nama model agar mudah diganti di masa depan
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.6-flash"
 
 # Memastikan API Key bersih dari spasi/karakter tersembunyi
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
