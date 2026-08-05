@@ -9,12 +9,10 @@ from google import genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-# ==========================================
-# CONFIGURATION
-# ==========================================
-GEMINI_API_KEY = "AQ.Ab8RN6LZtiWQtCNIMNeuCo_gxGTLr2gTWbpEpV5PujYPWGWomA"
-TELEGRAM_BOT_TOKEN = "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A"
-ALLOWED_CHAT_ID = "5883853281"
+# Membaca dari Railway Variables (Cloud) jika ada, atau menggunakan nilai default di bawah
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6LZtiWQtCNIMNeuCo_gxGTLr2gTWbpEpV5PujYPWGWomA")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
+ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = "D:\\Jarvis-Agent"
 VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
