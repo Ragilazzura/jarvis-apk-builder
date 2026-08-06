@@ -274,16 +274,19 @@ def manage_tasks(action: str, task_desc: str = "") -> str:
 def clean_markdown_to_html(text: str) -> str:
     if not text: return ""
 
+    # 1. Amankan tag HTML agar tidak rusak
     text = text.replace('<b>', '[[B_START]]').replace('</b>', '[[B_END]]')
     text = text.replace('<i>', '[[I_START]]').replace('</i>', '[[I_END]]')
     text = text.replace('<code>', '[[C_START]]').replace('</code>', '[[C_END]]')
 
+    # 2. Escape karakter sensitif (<, >) dari respon Gemini
     text = html.escape(text)
 
+    # 3. Ubah Markdown Headings & Lists
     text = re.sub(r'^#{1,4}\s+(.*?)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-
     text = re.sub(r'^\s*[\*\-]\s+', r'• ', text, flags=re.MULTILINE)
 
+    # 4. Ubah Markdown Bold, Italic, Code
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'__(.*?)__', r'<b>\1</b>', text)
     text = re.sub(r'(?<!\w)\*(.*?)\*(?!\w)', r'<i>\1</i>', text)
@@ -292,9 +295,11 @@ def clean_markdown_to_html(text: str) -> str:
 
     text = text.replace('---', '──────────────')
 
-    text = text.replace('[[B_START]]', '<b>').replace('[[B_END]]', '</b>')
-    text = text.replace('[[I_START]]', '<i>').replace('[[I_END]]', '</i>')
-    text = text.replace('[[C_START]]', '<code>').replace('[[C_END]]', '</code>')
+    # 5. Kembalikan tag HTML yang diamankan (tangani variasi dengan/tanpa underscore)
+    text = text.replace('[[B_START]]', '<b>').replace('[[BSTART]]', '<b>')
+    text = text.replace('[[B_END]]', '</b>').replace('[[BEND]]', '</b>')
+    text = text.replace('[[I_START]]', '<i>').replace('[[I_END]]', '<i>')
+    text = text.replace('[[C_START]]', '<code>').replace('[[C_END]]', '<code>')
 
     return text
 
