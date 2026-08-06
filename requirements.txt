@@ -5,3 +5,7 @@ schedule
 psutil
 requests
 beautifulsoup4
+apscheduler
+chromadb
+pypdf
+discord.py

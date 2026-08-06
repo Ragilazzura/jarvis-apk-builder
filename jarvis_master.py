@@ -8,9 +8,12 @@ import sqlite3
 import datetime
 import requests
 import psutil
+import html
 from bs4 import BeautifulSoup
 import edge_tts
 from google import genai
+import chromadb
+from pypdf import PdfReader
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -105,6 +108,70 @@ def get_all_memories() -> str:
     except Exception as e:
         return f"Error membaca memori: {e}"
 
+# ==========================================
+# VECTOR DATABASE & RAG ENGINE (FASE 2)
+# ==========================================
+
+VECTOR_DB_PATH = os.path.join(BASE_DIR, "jarvis_vector_db")
+
+# Inisialisasi ChromaDB secara lokal
+try:
+    chroma_client = chromadb.PersistentClient(path=VECTOR_DB_PATH)
+    knowledge_collection = chroma_client.get_or_create_collection(name="jarvis_knowledge")
+except Exception as e:
+    print(f"[!] Gagal inisialisasi Vector DB: {e}")
+
+def ingest_document_to_vector_db(file_path: str, doc_name: str) -> str:
+    """Membaca dokumen PDF/TXT dan memasukkannya ke Vector DB"""
+    try:
+        text_content = ""
+        if file_path.lower().endswith('.pdf'):
+            reader = PdfReader(file_path)
+            for page in reader.pages:
+                text = page.extract_text()
+                if text: text_content += text + "\n"
+        else:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text_content = f.read()
+
+        if not text_content.strip():
+            return "Dokumen kosong atau tidak bisa dibaca teksnya."
+
+        # Pecah teks menjadi "chunks" (potongan kecil) agar mudah diingat AI
+        chunk_size = 1000
+        chunks = [text_content[i:i+chunk_size] for i in range(0, len(text_content), chunk_size)]
+        
+        ids = [f"{doc_name}_chunk_{i}" for i in range(len(chunks))]
+        metadatas = [{"source": doc_name} for _ in chunks]
+
+        # Masukkan ke dalam "Otak" ChromaDB
+        knowledge_collection.add(
+            documents=chunks,
+            metadatas=metadatas,
+            ids=ids
+        )
+        return f"🧠 <b>KNOWLEDGE INGESTED:</b> Dokumen <code>{doc_name}</code> berhasil diserap ke dalam Otak Vector (Total: {len(chunks)} potongan memori)."
+    except Exception as e:
+        return f"🚨 Gagal menyerap dokumen: {str(e)}"
+
+def search_vector_db(query: str) -> str:
+    """Mencari informasi relevan dari dalam Vector DB"""
+    try:
+        if knowledge_collection.count() == 0:
+            return ""
+        
+        results = knowledge_collection.query(
+            query_texts=[query],
+            n_results=3 # Ambil 3 potongan teks paling relevan
+        )
+        
+        if results['documents'] and results['documents'][0]:
+            context = "\n\n---\n".join(results['documents'][0])
+            return f"\n\n[Konteks dari Vector DB Jarvis]:\n{context}"
+        return ""
+    except Exception as e:
+        print(f"Error Vector Search: {e}")
+        return ""
 # ==========================================
 # NEW MODULES: DEVOPS, SCRAPER, ORGANIZER, TASKS
 # ==========================================
@@ -206,11 +273,29 @@ def manage_tasks(action: str, task_desc: str = "") -> str:
 
 def clean_markdown_to_html(text: str) -> str:
     if not text: return ""
+
+    text = text.replace('<b>', '[[B_START]]').replace('</b>', '[[B_END]]')
+    text = text.replace('<i>', '[[I_START]]').replace('</i>', '[[I_END]]')
+    text = text.replace('<code>', '[[C_START]]').replace('</code>', '[[C_END]]')
+
+    text = html.escape(text)
+
+    text = re.sub(r'^#{1,4}\s+(.*?)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+
+    text = re.sub(r'^\s*[\*\-]\s+', r'• ', text, flags=re.MULTILINE)
+
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'__(.*?)__', r'<b>\1</b>', text)
-    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    text = re.sub(r'(?<!\w)\*(.*?)\*(?!\w)', r'<i>\1</i>', text)
     text = re.sub(r'_(.*?)_', r'<i>\1</i>', text)
     text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
+
+    text = text.replace('---', '──────────────')
+
+    text = text.replace('[[B_START]]', '<b>').replace('[[B_END]]', '</b>')
+    text = text.replace('[[I_START]]', '<i>').replace('[[I_END]]', '</i>')
+    text = text.replace('[[C_START]]', '<code>').replace('[[C_END]]', '</code>')
+
     return text
 
 def clean_text_for_speech(text: str) -> str:
@@ -309,23 +394,19 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, f"🖼️ <b>ANALISIS VISION:</b>\n\n{resp_txt}")
         return
 
-    # 2. DOCUMENT / PDF
+    # 2. DOCUMENT / PDF (VECTOR DB INGESTION)
     if is_document:
         doc_file = await update.message.document.get_file()
         doc_name = update.message.document.file_name
         doc_path = os.path.join(BASE_DIR, doc_name)
         await doc_file.download_to_drive(doc_path)
-        await safe_reply(update, f"📂 Menganalisis dokumen <code>{doc_name}</code>...")
+        await safe_reply(update, f"📂 Menyerap pengetahuan dari <code>{doc_name}</code> ke dalam Vector DB...")
         
-        try:
-            with open(doc_path, "rb") as f: doc_bytes = f.read()
-            d_prompt = user_input_text if user_input_text else "Rangkum isi dokumen ini."
-            d_res = client.models.generate_content(model=MODEL_NAME, contents=[{"inline_data": {"mime_type": "application/pdf", "data": doc_bytes}}, d_prompt])
-            resp_txt = d_res.text
-        except Exception as e: resp_txt = f"Gagal membaca dokumen: {str(e)}"
+        # Masukkan ke Vector DB
+        ingest_result = ingest_document_to_vector_db(doc_path, doc_name)
         
         if os.path.exists(doc_path): os.remove(doc_path)
-        await safe_reply(update, f"📄 <b>ANALISIS DOKUMEN:</b>\n\n{resp_txt}")
+        await safe_reply(update, ingest_result)
         return
 
     # 3. VOICE NOTE
@@ -414,9 +495,12 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update, f"🧠 <b>MEMORI DICATAT!</b>")
 
         else:
+            vector_context = search_vector_db(clean_query)
+            final_prompt = f"{JARVIS_PERSONA}\n\nMemori Jangka Pendek:\n{memories}{vector_context}\n\nPertanyaan Bos:\n{clean_query}"
+            
             c_res = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=f"{JARVIS_PERSONA}\n\nMemori:\n{memories}\n\nPesan:\n{clean_query}"
+                contents=final_prompt
             )
             await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
 
@@ -442,15 +526,79 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await safe_reply(update, msg)
 
+# ==========================================
+# PROACTIVE & AUTONOMOUS ENGINE (FASE 1)
+# ==========================================
+
+async def auto_server_alert(context: ContextTypes.DEFAULT_TYPE):
+    """Mengecek CPU setiap beberapa menit, kirim alert jika kritis"""
+    cpu = psutil.cpu_percent(interval=1)
+    if cpu > 85.0: # Batas toleransi kritis
+        alert_msg = f"🚨 <b>URGENT ALERT!</b> 🚨\n\nBos, penggunaan CPU server saat ini melonjak hingga <b>{cpu}%</b>! Mohon segera lakukan pengecekan sistem."
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=alert_msg, parse_mode='HTML')
+
+async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
+    """Memberikan laporan harian secara otomatis setiap pagi"""
+    stats = get_server_stats()
+    tasks = manage_tasks("LIST")
+    
+    prompt = (
+        f"Buat sapaan selamat pagi yang profesional dan semangat untuk 'Bos'. "
+        f"Lalu rangkumkan data ini dengan luwes: \nStatus Server: {stats}\nAgenda: {tasks}."
+    )
+    
+    try:
+        # Generate laporan via Gemini
+        res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+        briefing_text = res.text
+        
+        # Kirim teks
+        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=clean_markdown_to_html(briefing_text), parse_mode='HTML')
+        
+        # Generate & Kirim Voice Note otomatis
+        temp_voice = os.path.join(BASE_DIR, "briefing_voice.mp3")
+        spoken_text = clean_text_for_speech(briefing_text)
+        communicate = edge_tts.Communicate(spoken_text, VOICE_ACTOR, rate="+8%")
+        await communicate.save(temp_voice)
+        
+        with open(temp_voice, 'rb') as audio_file:
+            await context.bot.send_voice(chat_id=ALLOWED_CHAT_ID, voice=audio_file, caption="🎙️ Morning Briefing Audio")
+            
+        if os.path.exists(temp_voice): os.remove(temp_voice)
+    except Exception as e:
+        print(f"Gagal mengirim briefing: {e}")
+
 def main():
-    print("🤖 Jarvis Mega-Agent Running...")
+    print("🤖 Jarvis Mega-Agent (Proactive Mode) Running...")
+    try:
+        subprocess.Popen(["python", "jarvis_discord.py"])
+        print("✅ Sub-sistem Discord berhasil dinyalakan.")
+    except Exception as e:
+        print(f"⚠️ Gagal menyalakan Discord: {e}")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
     app.add_handler(MessageHandler(filters.VOICE, unified_handler))
     app.add_handler(MessageHandler(filters.PHOTO, unified_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, unified_handler))
+    # ----------------------------------------------------
+    # MENJADWALKAN TUGAS OTONOM (PROACTIVE ENGINE)
+    # ----------------------------------------------------
+    jq = app.job_queue
+    
+    # 1. Cek kesehatan server tiap 10 menit (600 detik)
+    jq.run_repeating(auto_server_alert, interval=600, first=10)
+    
+    # 2. Jadwalkan Morning Briefing setiap jam 07:00 pagi
+    # Catatan: Waktu menggunakan server time (biasanya UTC), sesuaikan jamnya jika perlu.
+    import datetime
+    target_time = datetime.time(hour=7, minute=0, second=0) 
+    jq.run_daily(morning_briefing, time=target_time)
+    
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
