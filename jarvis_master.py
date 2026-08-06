@@ -500,7 +500,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 model=MODEL_NAME,
                 contents=final_prompt
             )
-            await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
+            await safe_reply(update, c_res.text)
 
         if is_voice:
             await send_voice_response(update, voice_summary)
