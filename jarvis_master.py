@@ -16,7 +16,6 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnl
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
-VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
 
 # Variabel Global untuk nama model stabil terbaru
 MODEL_NAME = "gemini-3.6-flash"
@@ -129,7 +128,8 @@ async def send_voice_response(update: Update, raw_text: str):
         english_keywords = ["hello", "hi", "the", "and", "is", "you", "to", "a", "of", "in", "for", "it", "with", "sir", "boss"]
         words = spoken_text.lower().split()
         is_english = sum(1 for word in words if word in english_keywords) >= 2
-        chosen_voice = "en-US-AndrewNeural" if is_english else VOICE_ACTOR
+        chosen_voice = "en-US-AndrewNeural" if is_english else "id-ID-ArdiNeural"
+        
         communicate = edge_tts.Communicate(
             spoken_text, 
             chosen_voice,
