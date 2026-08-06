@@ -36,9 +36,9 @@ GROUNDING_CONFIG = {
 
 JARVIS_PERSONA = (
     "Kamu adalah JARVIS, asisten AI pribadi yang sangat cerdas, responsif, profesional, dan adaptif. "
-    "Aturan Bahasa:\n"
-    "1. Sesuaikan bahasa responmu secara otomatis dengan bahasa pengguna (Bahasa Indonesia atau Bahasa Inggris).\n"
-    "2. Gunakan sapaan 'Bos' secara proporsional.\n"
+    "Aturan Bahasa Wajib:\n"
+    "1. WAJIB mutlak menggunakan bahasa yang SAMA PERSIS dengan yang digunakan oleh pengguna pada pesan terakhirnya (Jika pengguna pakai Bahasa Inggris, balas dalam Bahasa Inggris. Jika Bahasa Indonesia, balas dalam Bahasa Indonesia).\n"
+    "2. Gunakan sapaan 'Bos' (atau 'Sir' jika berbahasa Inggris) secara proporsional.\n"
     "3. Jawablah dengan akurat, lugas, dan penyampaian yang enak didengar."
 )
 
@@ -274,19 +274,11 @@ def manage_tasks(action: str, task_desc: str = "") -> str:
 def clean_markdown_to_html(text: str) -> str:
     if not text: return ""
 
-    # 1. Amankan tag HTML agar tidak rusak
-    text = text.replace('<b>', '[[B_START]]').replace('</b>', '[[B_END]]')
-    text = text.replace('<i>', '[[I_START]]').replace('</i>', '[[I_END]]')
-    text = text.replace('<code>', '[[C_START]]').replace('</code>', '[[C_END]]')
-
-    # 2. Escape karakter sensitif (<, >) dari respon Gemini
     text = html.escape(text)
 
-    # 3. Ubah Markdown Headings & Lists
     text = re.sub(r'^#{1,4}\s+(.*?)$', r'<b>\1</b>', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[\*\-]\s+', r'• ', text, flags=re.MULTILINE)
 
-    # 4. Ubah Markdown Bold, Italic, Code
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'__(.*?)__', r'<b>\1</b>', text)
     text = re.sub(r'(?<!\w)\*(.*?)\*(?!\w)', r'<i>\1</i>', text)
@@ -294,12 +286,6 @@ def clean_markdown_to_html(text: str) -> str:
     text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
 
     text = text.replace('---', '──────────────')
-
-    # 5. Kembalikan tag HTML yang diamankan (tangani variasi dengan/tanpa underscore)
-    text = text.replace('[[B_START]]', '<b>').replace('[[BSTART]]', '<b>')
-    text = text.replace('[[B_END]]', '</b>').replace('[[BEND]]', '</b>')
-    text = text.replace('[[I_START]]', '<i>').replace('[[I_END]]', '<i>')
-    text = text.replace('[[C_START]]', '<code>').replace('[[C_END]]', '<code>')
 
     return text
 
@@ -312,8 +298,15 @@ async def send_voice_response(update: Update, raw_text: str):
     temp_voice_out = os.path.join(BASE_DIR, "temp_voice_out.mp3")
     try:
         spoken_text = clean_text_for_speech(raw_text)
+        
+        # Deteksi bahasa yang lebih akurat berdasarkan huruf/karakter dominan atau kata kunci
         words = spoken_text.lower().split()
-        is_english = sum(1 for w in words if w in ["hello", "hi", "the", "is", "you", "to", "for", "sir", "boss"]) >= 2
+        english_indicators = ["the", "is", "you", "to", "and", "a", "of", "in", "it", "that", "sir", "hello", "hi", "what", "how", "can"]
+        english_match_count = sum(1 for w in words if w in english_indicators)
+        
+        # Jika indikator bahasa Inggris cukup banyak atau teks diawali kalimat bahasa Inggris
+        is_english = english_match_count >= 2 or (len(words) > 0 and words[0] in ["hello", "hi", "sure", "i", "here's", "certainly"])
+        
         chosen_voice = "en-US-AndrewNeural" if is_english else VOICE_ACTOR
         
         communicate = edge_tts.Communicate(spoken_text, chosen_voice, rate="+8%")
