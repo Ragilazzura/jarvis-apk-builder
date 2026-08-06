@@ -2,3 +2,6 @@ google-genai
 python-telegram-bot
 edge-tts
 schedule
+psutil
+requests
+beautifulsoup4

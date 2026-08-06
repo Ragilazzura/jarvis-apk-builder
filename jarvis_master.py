@@ -6,9 +6,9 @@ import subprocess
 import asyncio
 import sqlite3
 import datetime
-import schedule
-import time
-import threading
+import requests
+import psutil
+from bs4 import BeautifulSoup
 import edge_tts
 from google import genai
 from telegram import Update
@@ -18,7 +18,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # Opsional untuk auto-push ke GitHub
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
@@ -33,15 +33,14 @@ GROUNDING_CONFIG = {
 
 JARVIS_PERSONA = (
     "Kamu adalah JARVIS, asisten AI pribadi yang sangat cerdas, responsif, profesional, dan adaptif. "
-    "Aturan Bahasa (Language Adaptation):\n"
-    "1. Sesuaikan bahasa responmu secara otomatis dengan bahasa yang digunakan pengguna saat ini (Bahasa Indonesia atau Bahasa Inggris).\n"
-    "2. Jika pengguna memberikan instruksi eksplisit untuk menggunakan bahasa tertentu, ikuti perintah tersebut.\n"
-    "3. Gunakan sapaan 'Bos' secara proporsional.\n"
-    "4. Jawablah dengan akurat, lugas, dan penyampaian yang enak didengar, baik untuk teks maupun voice note."
+    "Aturan Bahasa:\n"
+    "1. Sesuaikan bahasa responmu secara otomatis dengan bahasa pengguna (Bahasa Indonesia atau Bahasa Inggris).\n"
+    "2. Gunakan sapaan 'Bos' secara proporsional.\n"
+    "3. Jawablah dengan akurat, lugas, dan penyampaian yang enak didengar."
 )
 
 # ==========================================
-# LONG-TERM MEMORY & SCHEDULE DB (SQLITE)
+# LONG-TERM MEMORY & DATABASE ENGINE
 # ==========================================
 
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
@@ -60,11 +59,19 @@ def init_memory_db():
             )
         ''')
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_name TEXT,
-                command TEXT,
-                time_str TEXT
+                task TEXT,
+                status TEXT DEFAULT 'Pending',
+                due TEXT
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scraped_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT,
+                summary TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         conn.commit()
@@ -90,13 +97,108 @@ def get_all_memories() -> str:
     try:
         conn = sqlite3.connect(MEMORY_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT category, content FROM long_term_memory ORDER BY id DESC LIMIT 25")
+        cursor.execute("SELECT category, content FROM long_term_memory ORDER BY id DESC LIMIT 20")
         rows = cursor.fetchall()
         conn.close()
         if not rows: return "Belum ada catatan memori."
         return "\n".join([f"- [{cat}] {cont}" for cat, cont in rows])
     except Exception as e:
         return f"Error membaca memori: {e}"
+
+# ==========================================
+# NEW MODULES: DEVOPS, SCRAPER, ORGANIZER, TASKS
+# ==========================================
+
+def get_server_stats() -> str:
+    """Modul DevOps: Memantau kesehatan server"""
+    try:
+        cpu = psutil.cpu_percent(interval=1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        return (
+            f"🖥️ <b>SERVER HEALTH MONITOR</b>\n\n"
+            f"• <b>CPU Usage:</b> {cpu}%\n"
+            f"• <b>RAM Usage:</b> {mem.percent}% ({mem.used // (1024**2)}MB / {mem.total // (1024**2)}MB)\n"
+            f"• <b>Disk Usage:</b> {disk.percent}% ({disk.used // (1024**3)}GB / {disk.total // (1024**3)}GB)\n"
+            f"• <b>Status:</b> All systems operational ⚡"
+        )
+    except Exception as e:
+        return f"Gagal mengecek stats server: {str(e)}"
+
+def scrape_and_summarize(target_url: str) -> str:
+    """Modul Scraper: Sedot data web & simpan pipeline"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(target_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        for script in soup(["script", "style"]):
+            script.extract()
+        
+        text = soup.get_text()
+        lines = (line.strip() for line in text.splitlines())
+        clean_text = '\n'.join(chunk for chunk in lines if chunk)[:3000]
+        
+        prompt = f"Rangkum dan ekstrak data paling penting dari hasil web scraping berikut:\n{clean_text}"
+        res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
+        summary = res.text
+        
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO scraped_data (url, summary) VALUES (?, ?)", (target_url, summary))
+        conn.commit()
+        conn.close()
+        
+        return f"🕷️ <b>WEB SCRAPING SUCCESS:</b>\n<b>URL:</b> {target_url}\n\n<b>RINGKASAN:</b>\n{summary}"
+    except Exception as e:
+        return f"🚨 Scraping gagal: {str(e)}"
+
+def organize_directory(target_path: str = BASE_DIR) -> str:
+    """Modul Organizer: Merapikan folder berdasarkan ekstensi file"""
+    if not os.path.exists(target_path):
+        return f"Path <code>{target_path}</code> tidak ditemukan."
+    
+    categories = {
+        "Images": [".jpg", ".jpeg", ".png", ".gif", ".webp"],
+        "Documents": [".pdf", ".docx", ".txt", ".xlsx", ".pptx"],
+        "Code": [".py", ".js", ".html", ".css", ".json"],
+        "Archives": [".zip", ".tar", ".gz", ".rar"],
+        "Audio_Video": [".mp3", ".wav", ".mp4", ".mkv"]
+    }
+    
+    moved_count = 0
+    for item in os.listdir(target_path):
+        item_path = os.path.join(target_path, item)
+        if os.path.isfile(item_path):
+            ext = os.path.splitext(item)[1].lower()
+            for cat, exts in categories.items():
+                if ext in exts:
+                    cat_dir = os.path.join(target_path, cat)
+                    os.makedirs(cat_dir, exist_ok=True)
+                    shutil.move(item_path, os.path.join(cat_dir, item))
+                    moved_count += 1
+                    break
+    return f"🧹 <b>FOLDER ORGANIZED:</b> Berhasil merapikan {moved_count} file di folder <code>{target_path}</code>."
+
+def manage_tasks(action: str, task_desc: str = "") -> str:
+    """Modul Productivity Task Hub"""
+    conn = sqlite3.connect(MEMORY_DB_PATH)
+    cursor = conn.cursor()
+    
+    if action == "ADD":
+        cursor.execute("INSERT INTO tasks (task, due) VALUES (?, ?)", (task_desc, "Hari ini"))
+        conn.commit()
+        conn.close()
+        return f"📌 <b>TASK DICATAT:</b> '{task_desc}'"
+    elif action == "LIST":
+        cursor.execute("SELECT id, task, status FROM tasks WHERE status='Pending'")
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows: return "📋 Tidak ada tugas pending, Bos!"
+        return "📋 <b>DAFTAR TUGAS PENDING:</b>\n" + "\n".join([f"• [{r[0]}] {r[1]}" for r in rows])
+    
+    conn.close()
+    return "Aksi task tidak dikenal."
 
 # ==========================================
 # HELPER FUNCTIONS & MULTILINGUAL VOICE
@@ -114,20 +216,17 @@ def clean_markdown_to_html(text: str) -> str:
 def clean_text_for_speech(text: str) -> str:
     if not text: return ""
     text = re.sub(r'<[^>]*>', '', text)
-    text = text.replace("*", "").replace("`", "").replace("_", "").replace("#", "")
-    return text.strip()
+    return text.replace("*", "").replace("`", "").replace("_", "").replace("#", "").strip()
 
 async def send_voice_response(update: Update, raw_text: str):
     temp_voice_out = os.path.join(BASE_DIR, "temp_voice_out.mp3")
     try:
         spoken_text = clean_text_for_speech(raw_text)
-        english_keywords = ["hello", "hi", "the", "and", "is", "you", "to", "a", "of", "in", "for", "it", "with", "sir", "boss"]
         words = spoken_text.lower().split()
-        is_english = sum(1 for word in words if word in english_keywords) >= 2
-        
+        is_english = sum(1 for w in words if w in ["hello", "hi", "the", "is", "you", "to", "for", "sir", "boss"]) >= 2
         chosen_voice = "en-US-AndrewNeural" if is_english else VOICE_ACTOR
         
-        communicate = edge_tts.Communicate(spoken_text, chosen_voice, rate="+8%", pitch="+0Hz")
+        communicate = edge_tts.Communicate(spoken_text, chosen_voice, rate="+8%")
         await communicate.save(temp_voice_out)
 
         with open(temp_voice_out, 'rb') as audio_file:
@@ -135,7 +234,7 @@ async def send_voice_response(update: Update, raw_text: str):
 
         if os.path.exists(temp_voice_out): os.remove(temp_voice_out)
     except Exception as e:
-        print(f"[!] Warning Gagal kirim voice response: {e}")
+        print(f"[!] Gagal voice response: {e}")
         if os.path.exists(temp_voice_out): os.remove(temp_voice_out)
 
 async def safe_reply(update: Update, text: str):
@@ -145,91 +244,42 @@ async def safe_reply(update: Update, text: str):
         await update.message.reply_text(text)
 
 # ==========================================
-# ADVANCED CAPABILITIES (GITHUB & SELF-HEALING)
+# SELF-HEALING & MULTI-AGENT ENGINE
 # ==========================================
-
-def push_to_github(project_dir: str, project_name: str) -> str:
-    if not GITHUB_TOKEN:
-        return "Token GitHub belum diatur di environment variables."
-    try:
-        os.chdir(project_dir)
-        subprocess.run(["git", "init"], capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Jarvis Agent"], capture_output=True)
-        subprocess.run(["git", "config", "user.email", "jarvis@ai.system"], capture_output=True)
-        subprocess.run(["git", "add", "."], capture_output=True)
-        subprocess.run(["git", "commit", "-m", "Initial commit by Jarvis Multi-Agent AI"], capture_output=True)
-        # Catatan: Integrasi otomatis repo publik via GitHub API dapat dikembangkan lebih lanjut
-        os.chdir(BASE_DIR)
-        return f"Proyek berhasil di-git init dan di-commit secara lokal di {project_dir}."
-    except Exception as e:
-        os.chdir(BASE_DIR)
-        return f"Gagal auto-git: {str(e)}"
 
 async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
     file_dir = os.path.dirname(target_fp)
     file_name = os.path.basename(target_fp)
     
     for attempt in range(1, max_retries + 1):
-        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> (Percobaan {attempt}/{max_retries})...")
+        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> ({attempt}/{max_retries})...")
         r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=25, cwd=file_dir)
         
         if r_res.returncode == 0:
-            out = r_res.stdout if r_res.stdout else "(Program selesai tanpa output)"
+            out = r_res.stdout if r_res.stdout else "(Program selesai)"
             await safe_reply(update, f"✅ <b>BERHASIL:</b>\n\n{out}")
             return True
             
         error_output = r_res.stderr if r_res.stderr else r_res.stdout
-        await safe_reply(update, f"⚠️ <b>TERDETEKSI ERROR:</b>\n<pre>{error_output[:800]}</pre>\n🛡️ <i>Memperbaiki diri secara otonom...</i>")
+        await safe_reply(update, f"⚠️ <b>ERROR DETECTED:</b>\n<pre>{error_output[:600]}</pre>\n🛡️ <i>Self-Healing in progress...</i>")
         
         try:
-            with open(target_fp, "r", encoding="utf-8") as f:
-                current_code = f.read()
-        except Exception as e:
-            await safe_reply(update, f"❌ Gagal membaca file: {str(e)}")
-            return False
-            
-        fix_prompt = f"""
-        Kamu adalah SENIOR DEBUGGER & SELF-HEALING AGENT. Script ini error:
-        KODE:
-        ```python
-        {current_code}
-        ```
-        ERROR:
-        {error_output}
-        Perbaiki kodenya. Output HARUS JSON MURNI tanpa markdown:
-        {{"explanation": "penjelasan", "fixed_code": "kode lengkap baru"}}
-        """
-        try:
+            with open(target_fp, "r", encoding="utf-8") as f: current_code = f.read()
+            fix_prompt = f"Fix this error in Python code:\nCODE:\n{current_code}\nERROR:\n{error_output}\nOutput JSON MURNI: {{\"explanation\":\"...\", \"fixed_code\":\"...\"}}"
             fix_res = client.models.generate_content(model=MODEL_NAME, contents=fix_prompt)
             fix_data = json.loads(fix_res.text.replace("```json", "").replace("```", "").strip())
             fixed_code = fix_data.get("fixed_code", "")
             if fixed_code:
                 with open(target_fp, "w", encoding="utf-8") as f: f.write(fixed_code)
-                await safe_reply(update, f"🔧 <b>Patch diterapkan:</b> {fix_data.get('explanation', 'Perbaikan bug')}")
-            else:
-                return False
+                await safe_reply(update, f"🔧 <b>Fix Applied:</b> {fix_data.get('explanation')}")
+            else: return False
         except Exception as e:
-            await safe_reply(update, f"🚨 Gagal Auto-Fix: {str(e)}")
+            await safe_reply(update, f"🚨 Auto-Fix Gagal: {str(e)}")
             return False
     return False
 
-def run_architect_agent(user_instruction: str) -> dict:
-    prompt = f"Sebagai Architect Agent, rancang proyek: '{user_instruction}'. Output JSON MURNI: {{\"project_name\": \"nama\", \"blueprint\": \"desc\", \"file_list\": [\"main.py\"]}}"
-    res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
-    return json.loads(res.text.replace("```json", "").replace("```", "").strip())
-
-def run_coder_agent(user_instruction: str, blueprint_data: dict) -> dict:
-    prompt = f"Sebagai Coder Agent, tulis kode lengkap untuk: '{user_instruction}'. Blueprint: {json.dumps(blueprint_data)}. Output JSON MURNI: {{\"files\": [{{\"filepath\": \"main.py\", \"content\": \"kode\"}}]}}"
-    res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
-    return json.loads(res.text.replace("```json", "").replace("```", "").strip())
-
-def run_reviewer_agent(coder_output: dict) -> dict:
-    prompt = f"As QA Agent, review code: {json.dumps(coder_output)}. Output JSON MURNI: {{\"review_summary\": \"ok\", \"files\": [{{\"filepath\": \"main.py\", \"content\": \"code\"}}]}}"
-    res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
-    return json.loads(res.text.replace("```json", "").replace("```", "").strip())
-
 # ==========================================
-# UNIFIED INTENT ROUTER ENGINE (WITH VISION & DOCS)
+# UNIFIED INTENT ROUTER ENGINE
 # ==========================================
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -241,100 +291,70 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_document = bool(update.message.document)
     user_input_text = update.message.caption or update.message.text or ""
 
-    # 1. HANDLE VISION (FOTO / SCREENSHOT)
-    # 1. HANDLE VISION (FOTO / SCREENSHOT)
+    # 1. VISION (FOTO)
     if is_photo:
-        await safe_reply(update, "👁️ Menganalisis gambar/screenshot Bos...")
+        await safe_reply(update, "👁️ Menganalisis gambar Bos...")
         photo_file = await update.message.photo[-1].get_file()
         photo_path = os.path.join(BASE_DIR, "temp_vision.jpg")
         await photo_file.download_to_drive(photo_path)
+        with open(photo_path, "rb") as f: img_bytes = f.read()
         
-        with open(photo_path, "rb") as f:
-            image_bytes = f.read()
-            
-        vision_prompt = user_input_text if user_input_text else "Analisis gambar ini secara detail dan berikan solusi jika ini adalah error atau pertanyaan teknis."
+        v_prompt = user_input_text if user_input_text else "Analisis gambar ini secara detail."
         try:
-            v_res = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=[
-                    {"inline_data": {"mime_type": "image/jpeg", "data": image_bytes}},
-                    vision_prompt
-                ]
-            )
-            response_text = v_res.text
-        except Exception as e:
-            response_text = f"Gagal memproses gambar: {str(e)}"
-
-        if os.path.exists(photo_path): 
-            os.remove(photo_path)
-            
-        await safe_reply(update, f"🖼️ <b>ANALISIS VISION:</b>\n\n{response_text}")
+            v_res = client.models.generate_content(model=MODEL_NAME, contents=[{"inline_data": {"mime_type": "image/jpeg", "data": img_bytes}}, v_prompt])
+            resp_txt = v_res.text
+        except Exception as e: resp_txt = f"Gagal analisa gambar: {str(e)}"
+        
+        if os.path.exists(photo_path): os.remove(photo_path)
+        await safe_reply(update, f"🖼️ <b>ANALISIS VISION:</b>\n\n{resp_txt}")
         return
 
-    # 2. HANDLE DOCUMENT / PDF ANALYZER
+    # 2. DOCUMENT / PDF
     if is_document:
         doc_file = await update.message.document.get_file()
         doc_name = update.message.document.file_name
         doc_path = os.path.join(BASE_DIR, doc_name)
         await doc_file.download_to_drive(doc_path)
-        
         await safe_reply(update, f"📂 Menganalisis dokumen <code>{doc_name}</code>...")
         
         try:
-            with open(doc_path, "rb") as f:
-                doc_bytes = f.read()
-            
-            doc_prompt = user_input_text if user_input_text else "Rangkum isi dokumen ini dan berikan poin-poin pentingnya."
-            d_res = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=[
-                    {"inline_data": {"mime_type": "application/pdf", "data": doc_bytes}},
-                    doc_prompt
-                ]
-            )
-            response_text = d_res.text
-        except Exception as e:
-            response_text = f"Gagal membaca dokumen: {str(e)}"
-
-        if os.path.exists(doc_path): 
-            os.remove(doc_path)
-            
-        await safe_reply(update, f"📄 <b>HASIL ANALISIS DOKUMEN:</b>\n\n{response_text}")
+            with open(doc_path, "rb") as f: doc_bytes = f.read()
+            d_prompt = user_input_text if user_input_text else "Rangkum isi dokumen ini."
+            d_res = client.models.generate_content(model=MODEL_NAME, contents=[{"inline_data": {"mime_type": "application/pdf", "data": doc_bytes}}, d_prompt])
+            resp_txt = d_res.text
+        except Exception as e: resp_txt = f"Gagal membaca dokumen: {str(e)}"
+        
+        if os.path.exists(doc_path): os.remove(doc_path)
+        await safe_reply(update, f"📄 <b>ANALISIS DOKUMEN:</b>\n\n{resp_txt}")
         return
 
-    # 3. HANDLE VOICE NOTE
+    # 3. VOICE NOTE
     if is_voice:
-        await safe_reply(update, "🎙️ Mengolah pesan suara Bos...")
+        await safe_reply(update, "🎙️ Mengolah pesan suara...")
         temp_audio_path = os.path.join(BASE_DIR, "temp_voice_input.ogg")
         try:
             voice_file = await update.message.voice.get_file()
             await voice_file.download_to_drive(temp_audio_path)
-            with open(temp_audio_path, "rb") as audio_f:
-                audio_bytes = audio_f.read()
-            
-            t_res = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=[{"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}, "Transkripsikan pesan suara ini."]
-            )
+            with open(temp_audio_path, "rb") as f: audio_bytes = f.read()
+            t_res = client.models.generate_content(model=MODEL_NAME, contents=[{"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}, "Transkripsikan audio ini."])
             user_input_text = t_res.text.strip()
             if os.path.exists(temp_audio_path): os.remove(temp_audio_path)
         except Exception as e:
             if os.path.exists(temp_audio_path): os.remove(temp_audio_path)
-            await safe_reply(update, f"🚨 Gagal mendengarkan suara: {str(e)}")
+            await safe_reply(update, f"🚨 Gagal memproses suara: {str(e)}")
             return
 
     if not user_input_text: return
 
-    existing_memories = get_all_memories()
+    memories = get_all_memories()
     router_prompt = f"""
-    Analisis kalimat: "{user_input_text}"
-    Memori jangka panjang: {existing_memories}
-    Tentukan intent: SEARCH, BUILD, CMD, RUN, REMEMBER, CHAT.
+    Analisis perintah: "{user_input_text}"
+    Memori: {memories}
+    Pilih intent: SEARCH, BUILD, CMD, RUN, REMEMBER, MONITOR, SCRAPE, ORGANIZE, TASK, CHAT.
     Output JSON MURNI:
     {{
-        "intent": "SEARCH/BUILD/CMD/RUN/REMEMBER/CHAT",
-        "clean_query": "query rapi",
-        "is_data_requested": true/false,
+        "intent": "SEARCH/BUILD/CMD/RUN/REMEMBER/MONITOR/SCRAPE/ORGANIZE/TASK/CHAT",
+        "clean_query": "query rapi atau url jika scrape",
         "voice_summary": "ringkasan lisan pendek",
         "memory_category": "kategori",
         "memory_content": "konten"
@@ -342,45 +362,40 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     try:
         router_res = client.models.generate_content(model=MODEL_NAME, contents=router_prompt)
-        parsed_intent = json.loads(router_res.text.replace("```json", "").replace("```", "").strip())
+        parsed = json.loads(router_res.text.replace("```json", "").replace("```", "").strip())
         
-        intent = parsed_intent.get("intent", "CHAT")
-        clean_query = parsed_intent.get("clean_query", user_input_text)
-        is_data = parsed_intent.get("is_data_requested", False)
-        voice_summary = parsed_intent.get("voice_summary", "Siap Bos.")
+        intent = parsed.get("intent", "CHAT")
+        clean_query = parsed.get("clean_query", user_input_text)
+        voice_summary = parsed.get("voice_summary", "Siap Bos.")
 
-        if intent == "SEARCH":
-            await safe_reply(update, f"🌐 Mencari info: '<i>{clean_query}</i>'...")
-            s_res = client.models.generate_content(model=MODEL_NAME, contents=f"{JARVIS_PERSONA}\nRangkum info terbaru: {clean_query}", config=GROUNDING_CONFIG)
+        if intent == "MONITOR":
+            stats = get_server_stats()
+            await safe_reply(update, stats)
+
+        elif intent == "SCRAPE":
+            await safe_reply(update, f"🕷️ Menyedot data web dari <code>{clean_query}</code>...")
+            res_scrape = scrape_and_summarize(clean_query)
+            await safe_reply(update, res_scrape)
+
+        elif intent == "ORGANIZE":
+            res_org = organize_directory()
+            await safe_reply(update, res_org)
+
+        elif intent == "TASK":
+            if "lihat" in clean_query.lower() or "list" in clean_query.lower():
+                res_task = manage_tasks("LIST")
+            else:
+                res_task = manage_tasks("ADD", clean_query)
+            await safe_reply(update, res_task)
+
+        elif intent == "SEARCH":
+            await safe_reply(update, f"🌐 Riset internet: '<i>{clean_query}</i>'...")
+            s_res = client.models.generate_content(model=MODEL_NAME, contents=f"{JARVIS_PERSONA}\nRangkum: {clean_query}", config=GROUNDING_CONFIG)
             await safe_reply(update, f"🔍 <b>HASIL RISET:</b>\n\n{s_res.text}")
-            if is_voice: await send_voice_response(update, voice_summary)
-
-        elif intent == "BUILD":
-            await safe_reply(update, f"🚀 <b>MULTI-AGENT BUILD & GITHUB INIT:</b> {clean_query}")
-            arch_res = run_architect_agent(clean_query)
-            p_name = arch_res.get("project_name", "proyek_jarvis")
-            
-            coder_res = run_coder_agent(clean_query, arch_res)
-            final_res = run_reviewer_agent(coder_res)
-
-            project_dir = os.path.join(BASE_DIR, p_name)
-            os.makedirs(project_dir, exist_ok=True)
-            for f_info in final_res.get("files", []):
-                fp = os.path.join(project_dir, f_info["filepath"])
-                os.makedirs(os.path.dirname(fp), exist_ok=True)
-                with open(fp, "w", encoding="utf-8") as f: f.write(f_info["content"])
-
-            git_msg = push_to_github(project_dir, p_name)
-            zip_path = shutil.make_archive(project_dir, 'zip', project_dir)
-            await safe_reply(update, f"🎉 <b>PROYEK SELESAI:</b> <code>{p_name}</code>\n📦 Mengirim .ZIP...\n🐙 {git_msg}")
-            with open(zip_path, 'rb') as doc:
-                await update.message.reply_document(document=doc, filename=f"{p_name}.zip")
-            if is_voice: await send_voice_response(update, f"Proyek {p_name} selesai dibuat Bos.")
 
         elif intent == "CMD":
             cmd_res = subprocess.run(clean_query, shell=True, capture_output=True, text=True, timeout=30, cwd=BASE_DIR)
             await safe_reply(update, f"🖥️ <b>OUTPUT CMD:</b>\n\n{cmd_res.stdout or '(Selesai)'}")
-            if is_voice: await send_voice_response(update, voice_summary)
 
         elif intent == "RUN":
             target_fn = clean_query.replace("python", "").replace("run", "").strip()
@@ -391,30 +406,22 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
             if target_fp:
                 await run_with_self_healing(update, target_fp)
-                if is_voice: await send_voice_response(update, voice_summary)
             else:
                 await safe_reply(update, f"❌ File <code>{target_fn}</code> tidak ditemukan.")
 
         elif intent == "REMEMBER":
-            mem_cat = parsed_intent.get("memory_category", "Umum")
-            mem_cont = parsed_intent.get("memory_content", clean_query)
-            save_memory(mem_cat, mem_cont)
-            await safe_reply(update, f"🧠 <b>MEMORI DISIMPAN:</b>\n<b>[{mem_cat}]</b> {mem_cont}")
-            if is_voice: await send_voice_response(update, "Informasi sudah dicatat ke memori jangka panjang Bos.")
+            save_memory(parsed.get("memory_category", "Umum"), parsed.get("memory_content", clean_query))
+            await safe_reply(update, f"🧠 <b>MEMORI DICATAT!</b>")
 
         else:
             c_res = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=f"{JARVIS_PERSONA}\n\nMemori Jangka Panjang:\n{existing_memories}\n\nPesan Bos:\n{clean_query}"
+                contents=f"{JARVIS_PERSONA}\n\nMemori:\n{memories}\n\nPesan:\n{clean_query}"
             )
-            if is_voice:
-                if is_data:
-                    await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
-                    await send_voice_response(update, voice_summary)
-                else:
-                    await send_voice_response(update, voice_summary)
-            else:
-                await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
+            await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
+
+        if is_voice:
+            await send_voice_response(update, voice_summary)
 
     except Exception as e:
         await safe_reply(update, f"🚨 Gagal memproses: {str(e)}")
@@ -422,19 +429,21 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != ALLOWED_CHAT_ID: return
     msg = (
-        "⚡ <b>JARVIS ULTIMATE AGENT ONLINE!</b> 🤖\n\n"
-        "Semua fitur penuh aktif:\n"
-        "• 🧠 <b>Long-Term Memory (SQLite)</b>\n"
-        "• 🛡️ <b>Self-Healing Debugger</b>\n"
-        "• 🚀 <b>Multi-Agent Builder & Git Auto-Init</b>\n"
-        "• 👁️ <b>Vision / Screenshot Analyzer</b>\n"
-        "• 📄 <b>PDF / Document Analyzer</b>\n"
-        "• 🎙️ <b>Multilingual Voice Note (ID/EN)</b>"
+        "⚡ <b>JARVIS MEGA-AGENT ONLINE!</b> 🤖\n\n"
+        "Seluruh 10 Sistem Utama Siap Dijalankan:\n"
+        "• 🧠 Long-Term Memory\n"
+        "• 🖥️ Server Health DevOps Monitor\n"
+        "• 🕷️ Web Scraping & Data Pipeline\n"
+        "• 🧹 Smart File Organizer\n"
+        "• 📋 Task & Productivity Hub\n"
+        "• 🛡️ Self-Healing Debugger\n"
+        "• 👁️ Vision & PDF Analyzer\n"
+        "• 🎙️ Bilingual Voice Note"
     )
     await safe_reply(update, msg)
 
 def main():
-    print("🤖 Jarvis Ultimate Agent Running...")
+    print("🤖 Jarvis Mega-Agent Running...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
