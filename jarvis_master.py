@@ -575,30 +575,22 @@ def main():
         print("✅ Sub-sistem Discord berhasil dinyalakan.")
     except Exception as e:
         print(f"⚠️ Gagal menyalakan Discord: {e}")
+        
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
     app.add_handler(MessageHandler(filters.VOICE, unified_handler))
     app.add_handler(MessageHandler(filters.PHOTO, unified_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, unified_handler))
-    # ----------------------------------------------------
-    # MENJADWALKAN TUGAS OTONOM (PROACTIVE ENGINE)
-    # ----------------------------------------------------
-    jq = app.job_queue
     
-    # 1. Cek kesehatan server tiap 10 menit (600 detik)
+    jq = app.job_queue
     jq.run_repeating(auto_server_alert, interval=600, first=10)
     
-    # 2. Jadwalkan Morning Briefing setiap jam 07:00 pagi
-    # Catatan: Waktu menggunakan server time (biasanya UTC), sesuaikan jamnya jika perlu.
     import datetime
     target_time = datetime.time(hour=7, minute=0, second=0) 
     jq.run_daily(morning_briefing, time=target_time)
     
     app.run_polling()
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
