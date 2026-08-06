@@ -68,10 +68,30 @@ def read_root():
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     user_msg = request.message
+    
+    # 🕒 1. Suntikkan Waktu Real-Time Saat Ini
+    now = datetime.datetime.now()
+    time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
+    
+    memories = get_all_memories()
+    
+    system_prompt = f"""
+{JARVIS_PERSONA}
+
+[KONTEKS WAKTU SISTEM REAL-TIME]:
+Hari & Tanggal Sekarang: {time_context}
+
+[MEMORI TERIMPAN]:
+{memories}
+
+Pesan Pengguna: {user_msg}
+"""
     try:
+        # 🌐 2. Aktifkan Google Search Grounding agar bisa cek cuaca/berita real-time
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=f"{JARVIS_PERSONA}\n\nPesan dari aplikasi HP Bos: {user_msg}"
+            contents=system_prompt,
+            config=GROUNDING_CONFIG
         )
         return {"reply": response.text}
     except Exception as e:
