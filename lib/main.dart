@@ -33,7 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = false;
 
   // ⚠️ GANTI DENGAN URL RAILWAY KAMU
-  final String _railwayUrl = 'worker-production-792b.up.railway.app'; 
+  final String _railwayUrl = 'https://worker-production-792b.up.railway.app/chat'; 
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
