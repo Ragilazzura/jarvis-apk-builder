@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import asyncio
+import sqlite3
 import edge_tts
 from google import genai
 from telegram import Update
@@ -14,9 +15,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGP
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
-BASE_DIR = "D:\\Jarvis-Agent"
+BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural" # Suara Laki-Laki Indonesia Neural
-# Variabel Global untuk nama model agar mudah diganti di masa depan
+
+# Variabel Global untuk nama model stabil terbaru
 MODEL_NAME = "gemini-3.6-flash"
 
 # Memastikan API Key bersih dari spasi/karakter tersembunyi
@@ -39,7 +41,65 @@ JARVIS_PERSONA = (
 )
 
 # ==========================================
-# HELPER FUNCTIONS
+# LONG-TERM MEMORY ENGINE (SQLITE)
+# ==========================================
+
+MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
+
+def init_memory_db():
+    """Inisialisasi tabel memori jangka panjang jika belum ada"""
+    os.makedirs(BASE_DIR, exist_ok=True)
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS long_term_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[!] Warning Gagal inisialisasi DB memori: {e}")
+
+# Jalankan inisialisasi memori
+init_memory_db()
+
+def save_memory(category: str, content: str):
+    """Menyimpan ingatan baru ke database"""
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO long_term_memory (category, content) VALUES (?, ?)", (category, content))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[!] Gagal simpan memori: {e}")
+
+def get_all_memories() -> str:
+    """Mengambil semua ringkasan ingatan untuk disuntikkan ke konteks AI"""
+    if not os.path.exists(MEMORY_DB_PATH):
+        return "Tidak ada memori tersimpan."
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT category, content FROM long_term_memory ORDER BY id DESC LIMIT 25")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return "Belum ada catatan memori."
+        
+        memory_str = "\n".join([f"- [{cat}] {cont}" for cat, cont in rows])
+        return memory_str
+    except Exception as e:
+        return f"Error membaca memori: {e}"
+
+# ==========================================
+# HELPER FUNCTIONS & SELF-HEALING ENGINE
 # ==========================================
 
 def clean_markdown_to_html(text: str) -> str:
@@ -57,9 +117,7 @@ def clean_text_for_speech(text: str) -> str:
     if not text: return ""
     text = re.sub(r'<[^>]*>', '', text)
     text = text.replace("*", "").replace("`", "").replace("_", "").replace("#", "")
-    # Hilangkan koma sebelum panggilan "Bos" / "Bro" agar tidak ada jeda patah
     text = re.sub(r',\s*(Bos|Bro)', r' \1', text, flags=re.IGNORECASE)
-    # Ganti koma yang terlalu kaku menjadi spasi biasa
     text = text.replace(" ,", " ").replace(", ", " ")
     if len(text) > 400:
         text = text[:400] + ". Detail lengkapnya sudah saya tampilkan di teks ya Bos."
@@ -105,6 +163,77 @@ async def safe_reply(update: Update, text: str, is_html: bool = True):
     if len(clean_plain) > 4000:
         clean_plain = clean_plain[:4000] + "\n\n... (Output dipotong)"
     await update.message.reply_text(clean_plain)
+
+async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
+    """Fungsi otonom untuk menjalankan script, mendeteksi error, dan memperbaiki diri (self-healing)"""
+    file_dir = os.path.dirname(target_fp)
+    file_name = os.path.basename(target_fp)
+    
+    for attempt in range(1, max_retries + 1):
+        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> (Percobaan ke-{attempt}/{max_retries})...")
+        
+        r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=25, cwd=file_dir)
+        
+        if r_res.returncode == 0:
+            out = r_res.stdout if r_res.stdout else "(Program selesai tanpa output)"
+            await safe_reply(update, f"✅ <b>BERHASIL (Sukses):</b>\n\n{out}")
+            return True
+            
+        error_output = r_res.stderr if r_res.stderr else r_res.stdout
+        await safe_reply(update, f"⚠️ <b>TERDETEKSI ERROR PADA PERCOBAAN {attempt}:</b>\n<pre>{error_output[:1000]}</pre>\n\n🛡️ <i>Memulai prosedur Self-Healing & Auto-Fixing...</i>")
+        
+        try:
+            with open(target_fp, "r", encoding="utf-8") as f:
+                current_code = f.read()
+        except Exception as e:
+            await safe_reply(update, f"❌ Gagal membaca file kode: {str(e)}")
+            return False
+            
+        fix_prompt = f"""
+        Kamu adalah AI SENIOR DEBUGGER & SELF-HEALING AGENT.
+        Script Python ini mengalami error saat dieksekusi.
+        
+        NAMA FILE: {file_name}
+        
+        ISI KODE SAAT INI:
+        ```python
+        {current_code}
+        ```
+        
+        PESAN ERROR / TRACEBACK:
+        {error_output}
+        
+        Tugasmu:
+        Perbaiki kode tersebut agar error di atas hilang dan program bisa berjalan normal.
+        Output HARUS JSON MURNI tanpa markdown ```json:
+        {{
+            "explanation": "penjelasan singkat apa yang diperbaiki",
+            "fixed_code": "isi kode python lengkap yang sudah diperbaiki"
+        }}
+        """
+        
+        try:
+            fix_res = client.models.generate_content(model=MODEL_NAME, contents=fix_prompt)
+            clean_json_str = fix_res.text.replace("```json", "").replace("```", "").strip()
+            fix_data = json.loads(clean_json_str)
+            
+            explanation = fix_data.get("explanation", "Perbaikan bug otonom")
+            fixed_code = fix_data.get("fixed_code", "")
+            
+            if fixed_code:
+                with open(target_fp, "w", encoding="utf-8") as f:
+                    f.write(fixed_code)
+                await safe_reply(update, f"🔧 <b>Self-Healing Patch diterapkan:</b> {explanation}")
+            else:
+                await safe_reply(update, "❌ Gagal menghasilkan kode perbaikan.")
+                return False
+                
+        except Exception as e:
+            await safe_reply(update, f"🚨 Gagal memproses Auto-Fix: {str(e)}")
+            return False
+            
+    await safe_reply(update, f"❌ Program <code>{file_name}</code> gagal diperbaiki setelah {max_retries} kali percobaan otonom.")
+    return False
 
 # ==========================================
 # MULTI-AGENT ENGINE FUNCTIONS
@@ -180,7 +309,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(temp_audio_path, "rb") as audio_f:
                 audio_bytes = audio_f.read()
             
-            # Transkripsi suara ke teks menggunakan Gemini
             transcribe_prompt = "Transkripsikan pesan suara ini dengan tepat dalam Bahasa Indonesia."
             t_res = client.models.generate_content(
                 model=MODEL_NAME,
@@ -197,24 +325,31 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not user_input_text: return
 
-    # 2. DETEKSI INTENT/KATEGORI PERINTAH DENGAN GEMINI
+    # 2. DETEKSI INTENT/KATEGORI PERINTAH DENGAN MEMORI JANGKA PANJANG
+    existing_memories = get_all_memories()
+
     router_prompt = f"""
     Analisis kalimat input dari pengguna ini: "{user_input_text}"
-    Tentukan kategori perintah yang paling cocok di antara 5 pilihan berikut:
+    
+    Berikut adalah memori jangka panjang yang sudah dicatat sebelumnya:
+    {existing_memories}
+    
+    Tentukan kategori perintah di antara 6 pilihan berikut:
     - SEARCH (Jika pengguna meminta mencari berita, info internet, harga, atau topik terupdate)
     - BUILD (Jika pengguna meminta dibuatkan aplikasi, bot, program, atau proyek kodingan utuh)
-    - CMD (Jika pengguna meminta eksekusi perintah terminal/sistem laptop seperti list file, dir, ipconfig, dll)
+    - CMD (Jika pengguna meminta eksekusi perintah terminal/sistem laptop)
     - RUN (Jika pengguna meminta menjalankan file python tertentu, misal: jalankan main.py)
+    - REMEMBER (Jika pengguna secara eksplisit meminta Jarvis mengingat suatu informasi, preferensi, atau aturan baru)
     - CHAT (Untuk obrolan biasa, diskusi, pertanyaan umum, atau konsultasi)
-
-    Juga tentukan apakah respons butuh menyertakan data teks panjang/kodingan atau cukup obrolan lisan.
 
     Output HARUS JSON MURNI tanpa markdown ```json:
     {{
-        "intent": "SALAH_SATU_DARI_5_KATEGORI_DIATAS",
+        "intent": "SALAH_SATU_DARI_6_KATEGORI",
         "clean_query": "instruksi yang dirapikan",
         "is_data_requested": true_atau_false,
-        "voice_summary": "kalimat jawaban lisan pendek dan natural jika diomongkan via suara"
+        "voice_summary": "kalimat jawaban lisan pendek dan natural jika diomongkan via suara",
+        "memory_category": "kategori singkat jika intent REMEMBER, misal: Preferensi, Proyek, Aturan",
+        "memory_content": "poin informasi penting yang harus diingat jika intent REMEMBER"
     }}
     """
 
@@ -245,20 +380,16 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # B. INTENT: BUILD (MULTI-AGENT)
         elif intent == "BUILD":
             await safe_reply(update, f"🚀 <b>PANGGIL TIM MULTI-AGENT!</b>\nTarget: {clean_query}")
-            # Step 1
             await safe_reply(update, "🏛️ <b>[1/3] Architect Agent:</b> Merancang arsitektur...")
             arch_res = run_architect_agent(clean_query)
             p_name = arch_res.get("project_name", "proyek_jarvis")
             
-            # Step 2
             await safe_reply(update, "💻 <b>[2/3] Coder Agent:</b> Menulis kode program...")
             coder_res = run_coder_agent(clean_query, arch_res)
 
-            # Step 3
             await safe_reply(update, "🛡️ <b>[3/3] QA Agent:</b> Memeriksa bug & keamanan...")
             final_res = run_reviewer_agent(coder_res)
 
-            # Save Files
             project_dir = os.path.join(BASE_DIR, p_name)
             os.makedirs(project_dir, exist_ok=True)
             for f_info in final_res.get("files", []):
@@ -282,7 +413,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_voice:
                 await send_voice_response(update, "Perintah terminal sudah selesai dieksekusi Bos.")
 
-        # D. INTENT: RUN (Dengan Self-Healing)
+        # D. INTENT: RUN (DENGAN SELF-HEALING)
         elif intent == "RUN":
             target_fn = clean_query.replace("python", "").replace("run", "").strip()
             target_fp = None
@@ -291,31 +422,47 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target_fp = os.path.join(root, target_fn)
                     break
             if target_fp:
-                # Jalankan menggunakan fungsi self-healing otonom
                 success = await run_with_self_healing(update, target_fp)
                 if success and is_voice:
-                    await send_voice_response(update, f"Program {target_fn} berhasil diperbaiki dan dijalankan Bos.")
+                    await send_voice_response(update, f"Program {target_fn} berhasil dijalankan Bos.")
             else:
                 await safe_reply(update, f"❌ File <code>{target_fn}</code> tidak ditemukan di D:\\Jarvis-Agent")
 
-        # E. INTENT: CHAT (OBROLAN STANDARD)
+        # E. INTENT: REMEMBER (MENYIMPAN MEMORI JANGKA PANJANG)
+        elif intent == "REMEMBER":
+            mem_cat = parsed_intent.get("memory_category", "Umum")
+            mem_cont = parsed_intent.get("memory_content", clean_query)
+            
+            save_memory(mem_cat, mem_cont)
+            await safe_reply(update, f"🧠 <b>MEMORI DISIMPAN, BOS!</b>\n\n<b>[{mem_cat}]</b> {mem_cont}")
+            if is_voice:
+                await send_voice_response(update, "Siap Bos, informasinya sudah saya catat ke memori jangka panjang.")
+
+        # F. INTENT: CHAT (OBROLAN STANDARD DENGAN MEMORI)
         else:
+            current_memories = get_all_memories()
+            chat_context = f"""
+            {JARVIS_PERSONA}
+            
+            Berikut adalah catatan memori jangka panjang tentang Bos yang harus kamu ingat:
+            {current_memories}
+            
+            Obrolan/Pertanyaan Bos saat ini:
+            {clean_query}
+            """
+            
             c_res = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=f"{JARVIS_PERSONA}\n\nObrolan/Pertanyaan Bos:\n{clean_query}"
+                contents=chat_context
             )
             
-            # ATURAN BALASAN SUARA VS TEKS
             if is_voice:
                 if is_data:
-                    # Kirim Teks Detail + Voice Note Ringkas
                     await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
                     await send_voice_response(update, voice_summary)
                 else:
-                    # HANYA BALAS VOICE NOTE! (Chat tidak dipenuhi teks)
                     await send_voice_response(update, voice_summary)
             else:
-                # Jika Pengguna mengetik via teks -> Balas via Teks
                 await safe_reply(update, f"💬 <b>JARVIS:</b>\n\n{c_res.text}")
 
     except Exception as e:
@@ -325,103 +472,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
     msg = (
-        "⚡ <b>YOO, JARVIS INTENT-AWARE IS ONLINE, BOS!</b> 🤖\n\n"
-        "Sekarang kamu gak perlu pakai kode/prefix kaku lagi!\n"
-        "Tinggal **ketik langsung** atau **kirim pesan suara (Voice Note)** secara bebas.\n\n"
-        "Contoh yang bisa kamu katakan:\n"
-        "• <i>'Cariin harga GPU RTX 4060 hari ini'</i>\n"
-        "• <i>'Buatkan bot telegram pengingat jadwal'</i>\n"
-        "• <i>'Jalankan script main.py'</i>\n"
-        "• <i>'Halo Jarvis, hari ini ceritain lelucon dong'</i>"
+        "⚡ <b>YOO, JARVIS AGENT V2 (SELF-HEALING + MEMORY) ONLINE, BOS!</b> 🤖\n\n"
+        "Sekarang Jarvis punya memori jangka panjang dan bisa memperbaiki kodenya sendiri secara otonom!\n\n"
+        "Contoh perintah baru:\n"
+        "• <i>'Ingat ya, project utamaku menggunakan framework Flask'</i>\n"
+        "• <i>'Jalankan script test.py'</i> (jika error, Jarvis bakal auto-fix sendiri!)\n"
     )
     await safe_reply(update, msg, is_html=True)
 
-async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
-    """Fungsi otonom untuk menjalankan script, mendeteksi error, dan memperbaiki diri (self-healing)"""
-    file_dir = os.path.dirname(target_fp)
-    file_name = os.path.basename(target_fp)
-    
-    for attempt in range(1, max_retries + 1):
-        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> (Percobaan ke-{attempt}/{max_retries})...")
-        
-        # Eksekusi script python
-        r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=25, cwd=file_dir)
-        
-        # Jika BERHASIL (Exit code 0)
-        if r_res.returncode == 0:
-            out = r_res.stdout if r_res.stdout else "(Program selesai tanpa output)"
-            await safe_reply(update, f"✅ <b>BERHASIL (Sukses):</b>\n\n{out}")
-            return True
-            
-        # Jika GAGAL (Ada error traceback)
-        error_output = r_res.stderr if r_res.stderr else r_res.stdout
-        await safe_reply(update, f"⚠️ <b>TERDETEKSI ERROR PADA PERCOBAAN {attempt}:</b>\n<pre>{error_output[:1000]}</pre>\n\n🛡️ <i>Memulai prosedur Self-Healing & Auto-Fixing...</i>")
-        
-        # Baca isi file kode yang error saat ini
-        try:
-            with open(target_fp, "r", encoding="utf-8") as f:
-                current_code = f.read()
-        except Exception as e:
-            await safe_reply(update, f"❌ Gagal membaca file kode: {str(e)}")
-            return False
-            
-        # Panggil Gemini untuk memperbaiki kode yang error
-        fix_prompt = f"""
-        Kamu adalah AI SENIOR DEBUGGER & SELF-HEALING AGENT.
-        Script Python ini mengalami error saat dieksekusi.
-        
-        NAMA FILE: {file_name}
-        
-        ISI KODE SAAT INI:
-        ```python
-        {current_code}
-        ```
-        
-        PESAN ERROR / TRACEBACK:
-        {error_output}
-        
-        Tugasmu:
-        Perbaiki kode tersebut agar error di atas hilang dan program bisa berjalan normal.
-        Output HARUS JSON MURNI tanpa markdown ```json:
-        {{
-            "explanation": "penjelasan singkat apa yang diperbaiki",
-            "fixed_code": "isi kode python lengkap yang sudah diperbaiki"
-        }}
-        """
-        
-        try:
-            fix_res = client.models.generate_content(model=MODEL_NAME, contents=fix_prompt)
-            clean_json_str = fix_res.text.replace("```json", "").replace("```", "").strip()
-            fix_data = json.loads(clean_json_str)
-            
-            explanation = fix_data.get("explanation", "Perbaikan bug otonom")
-            fixed_code = fix_data.get("fixed_code", "")
-            
-            if fixed_code:
-                # Timpa file lama dengan kode hasil perbaikan mandiri
-                with open(target_fp, "w", encoding="utf-8") as f:
-                    f.write(fixed_code)
-                await safe_reply(update, f"🔧 <b>Self-Healing Patch diterapkan:</b> {explanation}")
-            else:
-                await safe_reply(update, "❌ Gagal menghasilkan kode perbaikan.")
-                return False
-                
-        except Exception as e:
-            await safe_reply(update, f"🚨 Gagal memproses Auto-Fix: {str(e)}")
-            return False
-            
-    await safe_reply(update, f"❌ Program <code>{file_name}</code> gagal diperbaiki setelah {max_retries} kali percobaan otonom.")
-    return False
-
 def main():
-    print("🤖 Jarvis Phase 12 (Unified Intent Engine) Running...")
+    print("🤖 Jarvis Phase 14 (Self-Healing & Long-Term Memory) Running...")
     print("Menunggu perintah suara / teks dari Bos...")
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    
-    # SATU PINTU: Menangani Teks & Voice Note Otomatis tanpa command /
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
     app.add_handler(MessageHandler(filters.VOICE, unified_handler))
 
