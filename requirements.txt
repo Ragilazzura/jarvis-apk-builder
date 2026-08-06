@@ -9,3 +9,6 @@ apscheduler
 chromadb
 pypdf
 discord.py
+fastapi
+uvicorn
+pydantic

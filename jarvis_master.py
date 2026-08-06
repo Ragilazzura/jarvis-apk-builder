@@ -9,6 +9,7 @@ import datetime
 import requests
 import psutil
 import html
+import threading
 from bs4 import BeautifulSoup
 import edge_tts
 from google import genai
@@ -16,6 +17,11 @@ import chromadb
 from pypdf import PdfReader
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+
+# --- IMPORT FASTAPI & UVICORN UNTUK FLUTTER ---
+from fastapi import FastAPI
+from pydantic import BaseModel
+import uvicorn
 
 # Konfigurasi Utama
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
@@ -37,10 +43,40 @@ GROUNDING_CONFIG = {
 JARVIS_PERSONA = (
     "Kamu adalah JARVIS, asisten AI pribadi yang sangat cerdas, responsif, profesional, dan adaptif. "
     "Aturan Bahasa Wajib:\n"
-    "1. WAJIB mutlak menggunakan bahasa yang SAMA PERSIS dengan yang digunakan oleh pengguna pada pesan terakhirnya (Jika pengguna pakai Bahasa Inggris, balas dalam Bahasa Inggris. Jika Bahasa Indonesia, balas dalam Bahasa Indonesia).\n"
+    "1. WAJIB mutlak menggunakan bahasa yang SAMA PERSIS dengan yang digunakan oleh pengguna pada pesan terakhirnya.\n"
     "2. Gunakan sapaan 'Bos' (atau 'Sir' jika berbahasa Inggris) secara proporsional.\n"
     "3. Jawablah dengan akurat, lugas, dan penyampaian yang enak didengar."
 )
+
+# ==========================================
+# FASTAPI SERVER ENGINE (UNTUK FLUTTER)
+# ==========================================
+web_app = FastAPI(title="Jarvis Mobile API")
+
+class ChatRequest(BaseModel):
+    message: str
+
+@web_app.get("/")
+def read_root():
+    return {"status": "Jarvis Web API Online", "time": str(datetime.datetime.now())}
+
+@web_app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    user_msg = request.message
+    try:
+        # Panggil Gemini langsung untuk respon Flutter
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=f"{JARVIS_PERSONA}\n\nPesan dari aplikasi HP Bos: {user_msg}"
+        )
+        return {"reply": response.text}
+    except Exception as e:
+        return {"reply": f"Maaf Bos, terjadi masalah pada server: {str(e)}"}
+
+def run_fastapi():
+    port = int(os.getenv("PORT", 8000))
+    print(f"🚀 Menyalakan FastAPI Server di Port {port}...")
+    uvicorn.run(web_app, host="0.0.0.0", port=port)
 
 # ==========================================
 # LONG-TERM MEMORY & DATABASE ENGINE
@@ -109,12 +145,11 @@ def get_all_memories() -> str:
         return f"Error membaca memori: {e}"
 
 # ==========================================
-# VECTOR DATABASE & RAG ENGINE (FASE 2)
+# VECTOR DATABASE & RAG ENGINE
 # ==========================================
 
 VECTOR_DB_PATH = os.path.join(BASE_DIR, "jarvis_vector_db")
 
-# Inisialisasi ChromaDB secara lokal
 try:
     chroma_client = chromadb.PersistentClient(path=VECTOR_DB_PATH)
     knowledge_collection = chroma_client.get_or_create_collection(name="jarvis_knowledge")
@@ -122,7 +157,6 @@ except Exception as e:
     print(f"[!] Gagal inisialisasi Vector DB: {e}")
 
 def ingest_document_to_vector_db(file_path: str, doc_name: str) -> str:
-    """Membaca dokumen PDF/TXT dan memasukkannya ke Vector DB"""
     try:
         text_content = ""
         if file_path.lower().endswith('.pdf'):
@@ -137,14 +171,12 @@ def ingest_document_to_vector_db(file_path: str, doc_name: str) -> str:
         if not text_content.strip():
             return "Dokumen kosong atau tidak bisa dibaca teksnya."
 
-        # Pecah teks menjadi "chunks" (potongan kecil) agar mudah diingat AI
         chunk_size = 1000
         chunks = [text_content[i:i+chunk_size] for i in range(0, len(text_content), chunk_size)]
         
         ids = [f"{doc_name}_chunk_{i}" for i in range(len(chunks))]
         metadatas = [{"source": doc_name} for _ in chunks]
 
-        # Masukkan ke dalam "Otak" ChromaDB
         knowledge_collection.add(
             documents=chunks,
             metadatas=metadatas,
@@ -155,14 +187,13 @@ def ingest_document_to_vector_db(file_path: str, doc_name: str) -> str:
         return f"🚨 Gagal menyerap dokumen: {str(e)}"
 
 def search_vector_db(query: str) -> str:
-    """Mencari informasi relevan dari dalam Vector DB"""
     try:
         if knowledge_collection.count() == 0:
             return ""
         
         results = knowledge_collection.query(
             query_texts=[query],
-            n_results=3 # Ambil 3 potongan teks paling relevan
+            n_results=3
         )
         
         if results['documents'] and results['documents'][0]:
@@ -172,12 +203,12 @@ def search_vector_db(query: str) -> str:
     except Exception as e:
         print(f"Error Vector Search: {e}")
         return ""
+
 # ==========================================
-# NEW MODULES: DEVOPS, SCRAPER, ORGANIZER, TASKS
+# MODULES: DEVOPS, SCRAPER, ORGANIZER, TASKS
 # ==========================================
 
 def get_server_stats() -> str:
-    """Modul DevOps: Memantau kesehatan server"""
     try:
         cpu = psutil.cpu_percent(interval=1)
         mem = psutil.virtual_memory()
@@ -193,7 +224,6 @@ def get_server_stats() -> str:
         return f"Gagal mengecek stats server: {str(e)}"
 
 def scrape_and_summarize(target_url: str) -> str:
-    """Modul Scraper: Sedot data web & simpan pipeline"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         resp = requests.get(target_url, headers=headers, timeout=10)
@@ -221,7 +251,6 @@ def scrape_and_summarize(target_url: str) -> str:
         return f"🚨 Scraping gagal: {str(e)}"
 
 def organize_directory(target_path: str = BASE_DIR) -> str:
-    """Modul Organizer: Merapikan folder berdasarkan ekstensi file"""
     if not os.path.exists(target_path):
         return f"Path <code>{target_path}</code> tidak ditemukan."
     
@@ -248,7 +277,6 @@ def organize_directory(target_path: str = BASE_DIR) -> str:
     return f"🧹 <b>FOLDER ORGANIZED:</b> Berhasil merapikan {moved_count} file di folder <code>{target_path}</code>."
 
 def manage_tasks(action: str, task_desc: str = "") -> str:
-    """Modul Productivity Task Hub"""
     conn = sqlite3.connect(MEMORY_DB_PATH)
     cursor = conn.cursor()
     
@@ -268,7 +296,7 @@ def manage_tasks(action: str, task_desc: str = "") -> str:
     return "Aksi task tidak dikenal."
 
 # ==========================================
-# HELPER FUNCTIONS & MULTILINGUAL VOICE
+# HELPER FUNCTIONS
 # ==========================================
 
 def clean_markdown_to_html(text: str) -> str:
@@ -299,12 +327,10 @@ async def send_voice_response(update: Update, raw_text: str):
     try:
         spoken_text = clean_text_for_speech(raw_text)
         
-        # Deteksi bahasa yang lebih akurat berdasarkan huruf/karakter dominan atau kata kunci
         words = spoken_text.lower().split()
         english_indicators = ["the", "is", "you", "to", "and", "a", "of", "in", "it", "that", "sir", "hello", "hi", "what", "how", "can"]
         english_match_count = sum(1 for w in words if w in english_indicators)
         
-        # Jika indikator bahasa Inggris cukup banyak atau teks diawali kalimat bahasa Inggris
         is_english = english_match_count >= 2 or (len(words) > 0 and words[0] in ["hello", "hi", "sure", "i", "here's", "certainly"])
         
         chosen_voice = "en-US-AndrewNeural" if is_english else VOICE_ACTOR
@@ -327,42 +353,7 @@ async def safe_reply(update: Update, text: str):
         await update.message.reply_text(text)
 
 # ==========================================
-# SELF-HEALING & MULTI-AGENT ENGINE
-# ==========================================
-
-async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
-    file_dir = os.path.dirname(target_fp)
-    file_name = os.path.basename(target_fp)
-    
-    for attempt in range(1, max_retries + 1):
-        await safe_reply(update, f"⚙️ Menjalankan <code>{file_name}</code> ({attempt}/{max_retries})...")
-        r_res = subprocess.run(["python", target_fp], capture_output=True, text=True, timeout=25, cwd=file_dir)
-        
-        if r_res.returncode == 0:
-            out = r_res.stdout if r_res.stdout else "(Program selesai)"
-            await safe_reply(update, f"✅ <b>BERHASIL:</b>\n\n{out}")
-            return True
-            
-        error_output = r_res.stderr if r_res.stderr else r_res.stdout
-        await safe_reply(update, f"⚠️ <b>ERROR DETECTED:</b>\n<pre>{error_output[:600]}</pre>\n🛡️ <i>Self-Healing in progress...</i>")
-        
-        try:
-            with open(target_fp, "r", encoding="utf-8") as f: current_code = f.read()
-            fix_prompt = f"Fix this error in Python code:\nCODE:\n{current_code}\nERROR:\n{error_output}\nOutput JSON MURNI: {{\"explanation\":\"...\", \"fixed_code\":\"...\"}}"
-            fix_res = client.models.generate_content(model=MODEL_NAME, contents=fix_prompt)
-            fix_data = json.loads(fix_res.text.replace("```json", "").replace("```", "").strip())
-            fixed_code = fix_data.get("fixed_code", "")
-            if fixed_code:
-                with open(target_fp, "w", encoding="utf-8") as f: f.write(fixed_code)
-                await safe_reply(update, f"🔧 <b>Fix Applied:</b> {fix_data.get('explanation')}")
-            else: return False
-        except Exception as e:
-            await safe_reply(update, f"🚨 Auto-Fix Gagal: {str(e)}")
-            return False
-    return False
-
-# ==========================================
-# UNIFIED INTENT ROUTER ENGINE
+# UNIFIED INTENT ROUTER ENGINE (TELEGRAM)
 # ==========================================
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -374,7 +365,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_document = bool(update.message.document)
     user_input_text = update.message.caption or update.message.text or ""
 
-    # 1. VISION (FOTO)
     if is_photo:
         await safe_reply(update, "👁️ Menganalisis gambar Bos...")
         photo_file = await update.message.photo[-1].get_file()
@@ -392,7 +382,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, f"🖼️ <b>ANALISIS VISION:</b>\n\n{resp_txt}")
         return
 
-    # 2. DOCUMENT / PDF (VECTOR DB INGESTION)
     if is_document:
         doc_file = await update.message.document.get_file()
         doc_name = update.message.document.file_name
@@ -400,14 +389,12 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await doc_file.download_to_drive(doc_path)
         await safe_reply(update, f"📂 Menyerap pengetahuan dari <code>{doc_name}</code> ke dalam Vector DB...")
         
-        # Masukkan ke Vector DB
         ingest_result = ingest_document_to_vector_db(doc_path, doc_name)
         
         if os.path.exists(doc_path): os.remove(doc_path)
         await safe_reply(update, ingest_result)
         return
 
-    # 3. VOICE NOTE
     if is_voice:
         await safe_reply(update, "🎙️ Mengolah pesan suara...")
         temp_audio_path = os.path.join(BASE_DIR, "temp_voice_input.ogg")
@@ -472,22 +459,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             s_res = client.models.generate_content(model=MODEL_NAME, contents=f"{JARVIS_PERSONA}\nRangkum: {clean_query}", config=GROUNDING_CONFIG)
             await safe_reply(update, f"🔍 <b>HASIL RISET:</b>\n\n{s_res.text}")
 
-        elif intent == "CMD":
-            cmd_res = subprocess.run(clean_query, shell=True, capture_output=True, text=True, timeout=30, cwd=BASE_DIR)
-            await safe_reply(update, f"🖥️ <b>OUTPUT CMD:</b>\n\n{cmd_res.stdout or '(Selesai)'}")
-
-        elif intent == "RUN":
-            target_fn = clean_query.replace("python", "").replace("run", "").strip()
-            target_fp = None
-            for root, dirs, files in os.walk(BASE_DIR):
-                if target_fn in files:
-                    target_fp = os.path.join(root, target_fn)
-                    break
-            if target_fp:
-                await run_with_self_healing(update, target_fp)
-            else:
-                await safe_reply(update, f"❌ File <code>{target_fn}</code> tidak ditemukan.")
-
         elif intent == "REMEMBER":
             save_memory(parsed.get("memory_category", "Umum"), parsed.get("memory_content", clean_query))
             await safe_reply(update, f"🧠 <b>MEMORI DICATAT!</b>")
@@ -496,10 +467,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             vector_context = search_vector_db(clean_query)
             final_prompt = f"{JARVIS_PERSONA}\n\nMemori Jangka Pendek:\n{memories}{vector_context}\n\nPertanyaan Bos:\n{clean_query}"
             
-            c_res = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=final_prompt
-            )
+            c_res = client.models.generate_content(model=MODEL_NAME, contents=final_prompt)
             await safe_reply(update, c_res.text)
 
         if is_voice:
@@ -510,83 +478,34 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != ALLOWED_CHAT_ID: return
-    msg = (
-        "⚡ <b>JARVIS MEGA-AGENT ONLINE!</b> 🤖\n\n"
-        "Seluruh 10 Sistem Utama Siap Dijalankan:\n"
-        "• 🧠 Long-Term Memory\n"
-        "• 🖥️ Server Health DevOps Monitor\n"
-        "• 🕷️ Web Scraping & Data Pipeline\n"
-        "• 🧹 Smart File Organizer\n"
-        "• 📋 Task & Productivity Hub\n"
-        "• 🛡️ Self-Healing Debugger\n"
-        "• 👁️ Vision & PDF Analyzer\n"
-        "• 🎙️ Bilingual Voice Note"
-    )
+    msg = "⚡ <b>JARVIS MEGA-AGENT ONLINE!</b> 🤖\n\nSeluruh Sistem Siap Dijalankan!"
     await safe_reply(update, msg)
 
 # ==========================================
-# PROACTIVE & AUTONOMOUS ENGINE (FASE 1)
+# MAIN EXECUTION
 # ==========================================
 
-async def auto_server_alert(context: ContextTypes.DEFAULT_TYPE):
-    """Mengecek CPU setiap beberapa menit, kirim alert jika kritis"""
-    cpu = psutil.cpu_percent(interval=1)
-    if cpu > 85.0: # Batas toleransi kritis
-        alert_msg = f"🚨 <b>URGENT ALERT!</b> 🚨\n\nBos, penggunaan CPU server saat ini melonjak hingga <b>{cpu}%</b>! Mohon segera lakukan pengecekan sistem."
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=alert_msg, parse_mode='HTML')
-
-async def morning_briefing(context: ContextTypes.DEFAULT_TYPE):
-    """Memberikan laporan harian secara otomatis setiap pagi"""
-    stats = get_server_stats()
-    tasks = manage_tasks("LIST")
-    
-    prompt = (
-        f"Buat sapaan selamat pagi yang profesional dan semangat untuk 'Bos'. "
-        f"Lalu rangkumkan data ini dengan luwes: \nStatus Server: {stats}\nAgenda: {tasks}."
-    )
-    
-    try:
-        # Generate laporan via Gemini
-        res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
-        briefing_text = res.text
-        
-        # Kirim teks
-        await context.bot.send_message(chat_id=ALLOWED_CHAT_ID, text=clean_markdown_to_html(briefing_text), parse_mode='HTML')
-        
-        # Generate & Kirim Voice Note otomatis
-        temp_voice = os.path.join(BASE_DIR, "briefing_voice.mp3")
-        spoken_text = clean_text_for_speech(briefing_text)
-        communicate = edge_tts.Communicate(spoken_text, VOICE_ACTOR, rate="+8%")
-        await communicate.save(temp_voice)
-        
-        with open(temp_voice, 'rb') as audio_file:
-            await context.bot.send_voice(chat_id=ALLOWED_CHAT_ID, voice=audio_file, caption="🎙️ Morning Briefing Audio")
-            
-        if os.path.exists(temp_voice): os.remove(temp_voice)
-    except Exception as e:
-        print(f"Gagal mengirim briefing: {e}")
-
 def main():
-    print("🤖 Jarvis Mega-Agent (Proactive Mode) Running...")
+    print("🤖 Jarvis Mega-Agent (Proactive + Web API Mode) Running...")
+    
+    # 1. NYALAKAN FASTAPI DI THREAD TERPISAH (UNTUK FLUTTER)
+    fastapi_thread = threading.Thread(target=run_fastapi, daemon=True)
+    fastapi_thread.start()
+    
+    # 2. NYALAKAN SUB-SISTEM DISCORD
     try:
         subprocess.Popen(["python", "jarvis_discord.py"])
         print("✅ Sub-sistem Discord berhasil dinyalakan.")
     except Exception as e:
         print(f"⚠️ Gagal menyalakan Discord: {e}")
         
+    # 3. NYALAKAN TELEGRAM BOT
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
     app.add_handler(MessageHandler(filters.VOICE, unified_handler))
     app.add_handler(MessageHandler(filters.PHOTO, unified_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, unified_handler))
-    
-    jq = app.job_queue
-    jq.run_repeating(auto_server_alert, interval=600, first=10)
-    
-    import datetime
-    target_time = datetime.time(hour=7, minute=0, second=0) 
-    jq.run_daily(morning_briefing, time=target_time)
     
     app.run_polling()
 
