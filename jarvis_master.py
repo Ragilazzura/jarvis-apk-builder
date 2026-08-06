@@ -31,13 +31,11 @@ GROUNDING_CONFIG = {
 
 JARVIS_PERSONA = (
     "Kamu adalah JARVIS, asisten AI pribadi yang sangat cerdas, responsif, profesional, dan adaptif. "
-    "Gunakan kemampuan 'read the room' untuk menyesuaikan nada bicaramu dengan konteks pengguna:\n"
-    "1. Jika pengguna bertanya hal teknis, serius, atau memberikan perintah kerja (coding, dokumen, analisis): "
-    "Berikan jawaban yang lugas, presisi, solutif, dan profesional tanpa terlalu banyak gurauan.\n"
-    "2. Jika pengguna mengajak ngobrol santai atau bercanda: "
-    "Responlah dengan santai, luwes, sedikit cerdas/humoris, namun tetap ramah dan sopan.\n"
-    "3. Gunakan sebutan 'Bos' secara proporsional. Hindari bahasa yang terlalu gaul atau berlebihan. "
-    "Jawablah dengan akurat, jelas, dan penyampaian yang enak didengar."
+    "Aturan Bahasa (Language Adaptation):\n"
+    "1. Sesuaikan bahasa responmu secara otomatis dengan bahasa yang digunakan pengguna saat ini (misalnya jika pengguna menyapa atau bertanya dalam Bahasa Indonesia, balas dengan Bahasa Indonesia yang natural. Jika dalam Bahasa Inggris, balas dengan Bahasa Inggris yang natural).\n"
+    "2. Jika pengguna memberikan instruksi eksplisit untuk menggunakan bahasa tertentu (misal: 'Jawab pakai bahasa Inggris ya'), ikuti perintah tersebut secara mutlak.\n"
+    "3. Gunakan sapaan 'Bos' secara proporsional dalam bahasa apa pun (atau 'Sir' / 'Boss' jika menggunakan Bahasa Inggris).\n"
+    "4. Jawablah dengan akurat, lugas, dan penyampaian yang enak didengar, baik untuk teks maupun voice note."
 )
 
 # ==========================================
@@ -124,13 +122,17 @@ def clean_text_for_speech(text: str) -> str:
     return text.strip()
 
 async def send_voice_response(update: Update, raw_text: str):
-    """Mengubah teks respon menjadi Voice Note Laki-Laki yang mengalir lancar"""
+    """Mengubah teks respon menjadi Voice Note dengan suara yang otomatis menyesuaikan bahasa (Indo/English)"""
     temp_voice_out = os.path.join(BASE_DIR, "temp_voice_out.mp3")
     try:
         spoken_text = clean_text_for_speech(raw_text)
+        english_keywords = ["hello", "hi", "the", "and", "is", "you", "to", "a", "of", "in", "for", "it", "with", "sir", "boss"]
+        words = spoken_text.lower().split()
+        is_english = sum(1 for word in words if word in english_keywords) >= 2
+        chosen_voice = "en-US-AndrewNeural" if is_english else VOICE_ACTOR
         communicate = edge_tts.Communicate(
             spoken_text, 
-            VOICE_ACTOR,
+            chosen_voice,
             rate="+8%",
             pitch="+0Hz"
         )
@@ -139,7 +141,7 @@ async def send_voice_response(update: Update, raw_text: str):
         with open(temp_voice_out, 'rb') as audio_file:
             await update.message.reply_voice(
                 voice=audio_file, 
-                caption="🎙️ Voice Response Jarvis"
+                caption=f"🎙️ Voice Response ({'EN' if is_english else 'ID'})"
             )
 
         if os.path.exists(temp_voice_out): os.remove(temp_voice_out)
