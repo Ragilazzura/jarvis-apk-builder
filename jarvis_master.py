@@ -5,6 +5,10 @@ import shutil
 import subprocess
 import asyncio
 import sqlite3
+import datetime
+import schedule
+import time
+import threading
 import edge_tts
 from google import genai
 from telegram import Update
@@ -14,6 +18,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # Opsional untuk auto-push ke GitHub
 
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
@@ -36,7 +41,7 @@ JARVIS_PERSONA = (
 )
 
 # ==========================================
-# LONG-TERM MEMORY ENGINE (SQLITE)
+# LONG-TERM MEMORY & SCHEDULE DB (SQLITE)
 # ==========================================
 
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
@@ -54,10 +59,18 @@ def init_memory_db():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_name TEXT,
+                command TEXT,
+                time_str TEXT
+            )
+        ''')
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"[!] Warning Gagal inisialisasi DB memori: {e}")
+        print(f"[!] Warning Gagal inisialisasi DB: {e}")
 
 init_memory_db()
 
@@ -105,7 +118,6 @@ def clean_text_for_speech(text: str) -> str:
     return text.strip()
 
 async def send_voice_response(update: Update, raw_text: str):
-    """Mengubah teks respon menjadi Voice Note dengan suara dinamis (Indo/English)"""
     temp_voice_out = os.path.join(BASE_DIR, "temp_voice_out.mp3")
     try:
         spoken_text = clean_text_for_speech(raw_text)
@@ -133,8 +145,25 @@ async def safe_reply(update: Update, text: str):
         await update.message.reply_text(text)
 
 # ==========================================
-# SELF-HEALING & MULTI-AGENT ENGINE
+# ADVANCED CAPABILITIES (GITHUB & SELF-HEALING)
 # ==========================================
+
+def push_to_github(project_dir: str, project_name: str) -> str:
+    if not GITHUB_TOKEN:
+        return "Token GitHub belum diatur di environment variables."
+    try:
+        os.chdir(project_dir)
+        subprocess.run(["git", "init"], capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Jarvis Agent"], capture_output=True)
+        subprocess.run(["git", "config", "user.email", "jarvis@ai.system"], capture_output=True)
+        subprocess.run(["git", "add", "."], capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Initial commit by Jarvis Multi-Agent AI"], capture_output=True)
+        # Catatan: Integrasi otomatis repo publik via GitHub API dapat dikembangkan lebih lanjut
+        os.chdir(BASE_DIR)
+        return f"Proyek berhasil di-git init dan di-commit secara lokal di {project_dir}."
+    except Exception as e:
+        os.chdir(BASE_DIR)
+        return f"Gagal auto-git: {str(e)}"
 
 async def run_with_self_healing(update: Update, target_fp: str, max_retries: int = 3):
     file_dir = os.path.dirname(target_fp)
@@ -195,12 +224,12 @@ def run_coder_agent(user_instruction: str, blueprint_data: dict) -> dict:
     return json.loads(res.text.replace("```json", "").replace("```", "").strip())
 
 def run_reviewer_agent(coder_output: dict) -> dict:
-    prompt = f"Sebagai QA Agent, tinjau kode: {json.dumps(coder_output)}. Output JSON MURNI: {{\"review_summary\": \"ok\", \"files\": [{{\"filepath\": \"main.py\", \"content\": \"kode\"}}]}}"
+    prompt = f"As QA Agent, review code: {json.dumps(coder_output)}. Output JSON MURNI: {{\"review_summary\": \"ok\", \"files\": [{{\"filepath\": \"main.py\", \"content\": \"code\"}}]}}"
     res = client.models.generate_content(model=MODEL_NAME, contents=prompt)
     return json.loads(res.text.replace("```json", "").replace("```", "").strip())
 
 # ==========================================
-# UNIFIED INTENT ROUTER ENGINE
+# UNIFIED INTENT ROUTER ENGINE (WITH VISION & DOCS)
 # ==========================================
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -208,8 +237,72 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id != ALLOWED_CHAT_ID: return
 
     is_voice = bool(update.message.voice)
-    user_input_text = ""
+    is_photo = bool(update.message.photo)
+    is_document = bool(update.message.document)
+    user_input_text = update.message.caption or update.message.text or ""
 
+    # 1. HANDLE VISION (FOTO / SCREENSHOT)
+    # 1. HANDLE VISION (FOTO / SCREENSHOT)
+    if is_photo:
+        await safe_reply(update, "👁️ Menganalisis gambar/screenshot Bos...")
+        photo_file = await update.message.photo[-1].get_file()
+        photo_path = os.path.join(BASE_DIR, "temp_vision.jpg")
+        await photo_file.download_to_drive(photo_path)
+        
+        with open(photo_path, "rb") as f:
+            image_bytes = f.read()
+            
+        vision_prompt = user_input_text if user_input_text else "Analisis gambar ini secara detail dan berikan solusi jika ini adalah error atau pertanyaan teknis."
+        try:
+            v_res = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[
+                    {"inline_data": {"mime_type": "image/jpeg", "data": image_bytes}},
+                    vision_prompt
+                ]
+            )
+            response_text = v_res.text
+        except Exception as e:
+            response_text = f"Gagal memproses gambar: {str(e)}"
+
+        if os.path.exists(photo_path): 
+            os.remove(photo_path)
+            
+        await safe_reply(update, f"🖼️ <b>ANALISIS VISION:</b>\n\n{response_text}")
+        return
+
+    # 2. HANDLE DOCUMENT / PDF ANALYZER
+    if is_document:
+        doc_file = await update.message.document.get_file()
+        doc_name = update.message.document.file_name
+        doc_path = os.path.join(BASE_DIR, doc_name)
+        await doc_file.download_to_drive(doc_path)
+        
+        await safe_reply(update, f"📂 Menganalisis dokumen <code>{doc_name}</code>...")
+        
+        try:
+            with open(doc_path, "rb") as f:
+                doc_bytes = f.read()
+            
+            doc_prompt = user_input_text if user_input_text else "Rangkum isi dokumen ini dan berikan poin-poin pentingnya."
+            d_res = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[
+                    {"inline_data": {"mime_type": "application/pdf", "data": doc_bytes}},
+                    doc_prompt
+                ]
+            )
+            response_text = d_res.text
+        except Exception as e:
+            response_text = f"Gagal membaca dokumen: {str(e)}"
+
+        if os.path.exists(doc_path): 
+            os.remove(doc_path)
+            
+        await safe_reply(update, f"📄 <b>HASIL ANALISIS DOKUMEN:</b>\n\n{response_text}")
+        return
+
+    # 3. HANDLE VOICE NOTE
     if is_voice:
         await safe_reply(update, "🎙️ Mengolah pesan suara Bos...")
         temp_audio_path = os.path.join(BASE_DIR, "temp_voice_input.ogg")
@@ -229,8 +322,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(temp_audio_path): os.remove(temp_audio_path)
             await safe_reply(update, f"🚨 Gagal mendengarkan suara: {str(e)}")
             return
-    else:
-        user_input_text = update.message.text
 
     if not user_input_text: return
 
@@ -265,7 +356,7 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_voice: await send_voice_response(update, voice_summary)
 
         elif intent == "BUILD":
-            await safe_reply(update, f"🚀 <b>MULTI-AGENT BUILD:</b> {clean_query}")
+            await safe_reply(update, f"🚀 <b>MULTI-AGENT BUILD & GITHUB INIT:</b> {clean_query}")
             arch_res = run_architect_agent(clean_query)
             p_name = arch_res.get("project_name", "proyek_jarvis")
             
@@ -279,8 +370,9 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f: f.write(f_info["content"])
 
+            git_msg = push_to_github(project_dir, p_name)
             zip_path = shutil.make_archive(project_dir, 'zip', project_dir)
-            await safe_reply(update, f"🎉 <b>PROYEK SELESAI:</b> <code>{p_name}</code>\n📦 Mengirim .ZIP...")
+            await safe_reply(update, f"🎉 <b>PROYEK SELESAI:</b> <code>{p_name}</code>\n📦 Mengirim .ZIP...\n🐙 {git_msg}")
             with open(zip_path, 'rb') as doc:
                 await update.message.reply_document(document=doc, filename=f"{p_name}.zip")
             if is_voice: await send_voice_response(update, f"Proyek {p_name} selesai dibuat Bos.")
@@ -329,14 +421,26 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != ALLOWED_CHAT_ID: return
-    await safe_reply(update, "⚡ <b>JARVIS AGENT ONLINE (TELEGRAM MODE)!</b> 🤖\n\nSemua fitur memori, self-healing, multi-agent, dan bilingual voice aktif sepenuhnya, Bos!")
+    msg = (
+        "⚡ <b>JARVIS ULTIMATE AGENT ONLINE!</b> 🤖\n\n"
+        "Semua fitur penuh aktif:\n"
+        "• 🧠 <b>Long-Term Memory (SQLite)</b>\n"
+        "• 🛡️ <b>Self-Healing Debugger</b>\n"
+        "• 🚀 <b>Multi-Agent Builder & Git Auto-Init</b>\n"
+        "• 👁️ <b>Vision / Screenshot Analyzer</b>\n"
+        "• 📄 <b>PDF / Document Analyzer</b>\n"
+        "• 🎙️ <b>Multilingual Voice Note (ID/EN)</b>"
+    )
+    await safe_reply(update, msg)
 
 def main():
-    print("🤖 Jarvis Telegram Agent Running...")
+    print("🤖 Jarvis Ultimate Agent Running...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
     app.add_handler(MessageHandler(filters.VOICE, unified_handler))
+    app.add_handler(MessageHandler(filters.PHOTO, unified_handler))
+    app.add_handler(MessageHandler(filters.Document.ALL, unified_handler))
     app.run_polling()
 
 if __name__ == "__main__":
