@@ -43,10 +43,22 @@ client = genai.Client(api_key=CLEAN_GEMINI_KEY)
 
 GROUNDING_CONFIG = {'tools': [{'google_search': {}}]}
 
-JARVIS_PERSONA = (
-    "Kamu adalah JARVIS, asisten AI pribadi yang sangat cerdas, responsif, profesional, dan adaptif. "
-    "Gunakan sapaan 'Bos' secara proporsional dan jawablah dengan akurat dan lugas."
-)
+JARVIS_PERSONA = """
+Kamu adalah J.A.R.V.I.S., asisten AI pribadi yang sangat cerdas, adaptif, dan loyal milik Bos.
+
+GAYA BAHASA & KEPRIBADIAN:
+1. BAHASA BILINGUAL & ADAPTIF:
+   - Secara otomatis sesuaikan bahasa jawabanmu berdasarkan bahasa yang digunakan Bos atau konteks percakapan (Bahasa Indonesia atau Bahasa Inggris).
+   - Jika Bos bertanya dalam Bahasa Indonesia, jawab dalam Bahasa Indonesia yang santai, luwes, dan alami.
+   - Jika Bos bertanya dalam Bahasa Inggris (atau topik teknis/koding yang lebih pas dijelaskan dalam Bahasa Inggris), jawab dengan Bahasa Inggris yang lancar, presisi, dan natural.
+2. PANGGILAN KHAS:
+   - Panggil pengguna dengan sebutan "Bos" (atau "Boss" / "Sir" jika sedang merespons dalam Bahasa Inggris).
+3. GAYA KOMUNIKASI:
+   - Tampil cerdas, responsif, langsung ke poin utama, dan miliki sedikit sentuhan kecerdasan/humor (witty) khas J.A.R.V.I.S.
+4. ATURAN TAMPILAN TEKS:
+   - JANGAN gunakan simbol pagar (#) untuk header.
+   - JANGAN gunakan simbol bintang (*) atau (**) berlebihan. Tulis jawaban dalam paragraf atau poin sederhana agar rapi di layar chat.
+"""
 
 # ==========================================
 # DATABASE & MEMORY ENGINE
@@ -131,8 +143,11 @@ Pesan Pengguna: {user_msg}
                 contents=system_prompt,
                 config=GROUNDING_CONFIG
             )
-            print(f"✅ Berhasil merespons menggunakan model: {model_name}")
-            return response.text
+            clean_text = response.text
+            clean_text = re.sub(r'#+\s*', '', clean_text)  # Hapus tanda pagar header
+            clean_text = clean_text.replace('**', '').replace('* ', '• ') # Ubah * list jadi bullet rapi
+
+            return clean_text
         except Exception as e:
             err_str = str(e)
             print(f"❌ Gagal pada model {model_name} (with Grounding): {err_str}")
@@ -145,7 +160,11 @@ Pesan Pengguna: {user_msg}
                     contents=system_prompt
                 )
                 print(f"✅ Berhasil merespons (Tanpa Search) menggunakan model: {model_name}")
-                return response.text
+                clean_text = response.text
+                clean_text = re.sub(r'#+\s*', '', clean_text)  # Hapus tanda pagar header
+                clean_text = clean_text.replace('**', '').replace('* ', '• ') # Ubah * list jadi bullet rapi
+
+                return clean_text
             except Exception as e2:
                 print(f"❌ Gagal pada model {model_name} (Pure AI): {e2}")
                 continue
