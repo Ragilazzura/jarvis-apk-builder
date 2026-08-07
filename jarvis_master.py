@@ -36,7 +36,7 @@ BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
 
 # 🟢 PENYESUAIAN NAMA MODEL RESMI GEMINI
-MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-3.6-flash"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
@@ -116,8 +116,10 @@ Pesan Pengguna: {user_msg}
 """
     # 🟢 DAFTAR MODEL YANG PASTI VALID DI AKUN & SDK KAMU
     MODEL_CANDIDATES = [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
+        "gemini-3.0",
+        "gemini-3.1-lite",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite"
     ]
 
     for model_name in MODEL_CANDIDATES:
