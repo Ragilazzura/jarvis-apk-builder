@@ -79,6 +79,22 @@ def get_all_memories() -> str:
     except Exception as e: 
         return f"Error DB: {e}"
 
+# 🟢 FUNGSI TAMBAHAN UNTUK MEMENUHI DEPENDENSI DISCORD & TELEGRAM
+def save_memory(category: str, content: str) -> str:
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO long_term_memory (category, content) VALUES (?, ?)", (category, content))
+        conn.commit()
+        conn.close()
+        return "Memori berhasil disimpan!"
+    except Exception as e:
+        return f"Gagal menyimpan memori: {e}"
+
+def search_vector_db(query: str, n_results: int = 3) -> str:
+    """Mencari memori terintegrasi (dipakai oleh Discord Bot)"""
+    return get_all_memories()
+
 # ==========================================
 # OTAK UTAMA JARVIS (DIPAKAI WEBSERVER & TELEGRAM)
 # ==========================================
