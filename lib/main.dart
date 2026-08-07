@@ -350,7 +350,7 @@ class _ChatScreenState extends State<ChatScreen> {
               bottomRight: Radius.circular(isUser ? 4 : 16),
             ),
             border: Border.all(
-              color: isUser ? Colors.cyan.shade300.withOpacity(0.3) : Colors.cyanAccent.withOpacity(0.15),
+              color: isUser ? Colors.cyan.shade300.withValues(alpha: 0.3) : Colors.cyanAccent.withValues(alpha: 0.15),
               width: 0.8,
             ),
           ),
@@ -376,7 +376,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(
                   msg.time,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.4),
+                    color: Colors.white.withValues(alpha: 0.4),
                     fontSize: 10,
                   ),
                 ),

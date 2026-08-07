@@ -29,14 +29,14 @@ import uvicorn
 # KONFIGURASI UTAMA & MODEL API
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAEV2tAe1nKRXgMfFBD_-LkVkN9xP3NQnSA")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
 
 # 🟢 PENYESUAIAN NAMA MODEL RESMI GEMINI
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.1-flash-lite"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
