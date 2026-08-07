@@ -28,7 +28,7 @@ import uvicorn
 # ==========================================
 # KONFIGURASI UTAMA & MODEL API
 # ==========================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6KUq2vS-wQLyLHiU-l3c1mUkXsQTEhX6CVwznt1FdC-dA")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAEV2tAe1nKRXgMfFBD_-LkVkN9xP3NQnSA")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
