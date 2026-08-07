@@ -96,7 +96,7 @@ def search_vector_db(query: str, n_results: int = 3) -> str:
     return get_all_memories()
 
 # ==========================================
-# OTAK UTAMA JARVIS (AUTO-FALLBACK MODEL)
+# OTAK UTAMA JARVIS (FIXED MODELS FOR SDK v1beta)
 # ==========================================
 def ask_jarvis(user_msg: str) -> str:
     now = datetime.datetime.now()
@@ -114,16 +114,16 @@ Hari & Tanggal Sekarang: {time_context}
 
 Pesan Pengguna: {user_msg}
 """
-    # 🟢 Model-model resmi yang paling stabil di API Gemini
+    # 🟢 DAFTAR MODEL YANG PASTI VALID DI AKUN & SDK KAMU
     MODEL_CANDIDATES = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro"
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
     ]
 
     for model_name in MODEL_CANDIDATES:
         try:
             print(f"🔄 Mencoba menghubungi model: {model_name}...")
+            # Coba jalankan dengan Grounding (Google Search)
             response = client.models.generate_content(
                 model=model_name,
                 contents=system_prompt,
@@ -133,14 +133,22 @@ Pesan Pengguna: {user_msg}
             return response.text
         except Exception as e:
             err_str = str(e)
-            # cetak log persis errornya di Railway Terminal
-            print(f"❌ Gagal pada model {model_name}: {err_str}")
+            print(f"❌ Gagal pada model {model_name} (with Grounding): {err_str}")
             
-            if "404" in err_str or "429" in err_str or "ResourceExhausted" in err_str:
+            # Jika gagal karena grounding/limit, coba sekali lagi TANPA Grounding (Pure AI)
+            try:
+                print(f"🔄 Retry {model_name} TANPA Grounding Search...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=system_prompt
+                )
+                print(f"✅ Berhasil merespons (Tanpa Search) menggunakan model: {model_name}")
+                return response.text
+            except Exception as e2:
+                print(f"❌ Gagal pada model {model_name} (Pure AI): {e2}")
                 continue
-            return f"🚨 Terjadi kesalahan pada otak Jarvis: {err_str}"
 
-    return "Maaf Bos, semua jalur model API Gemini sedang penuh atau tidak tersedia. Mohon tunggu 1 menit ya! ⏳"
+    return "Maaf Bos, server Google sedang membatasi kuota API di wilayah ini. Mohon tunggu 30 detik ya! ⏳"
 
 # ==========================================
 # FASTAPI SERVER ENGINE + CORS (FLUTTER)
