@@ -25,14 +25,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-# Konfigurasi Utama
+# ==========================================
+# KONFIGURASI UTAMA & MODEL API
+# ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6Kbs37cggGinTX-5AW_9z-eJGPtggJa97dJCuJ-K7roYA")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAHiaoc3IiDJqnlgVe8mmzUhYP4WrCMOh4A")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
-MODEL_NAME = "gemini-3.1-flash-lite"
+
+# 🟢 PENYESUAIAN NAMA MODEL RESMI GEMINI
+MODEL_NAME = "gemini-2.5-flash"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
@@ -45,11 +49,74 @@ JARVIS_PERSONA = (
 )
 
 # ==========================================
-# FASTAPI SERVER ENGINE + CORS (UNTUK FLUTTER)
+# DATABASE & MEMORY ENGINE
+# ==========================================
+MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
+
+def init_memory_db():
+    os.makedirs(BASE_DIR, exist_ok=True)
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS long_term_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task TEXT, status TEXT DEFAULT 'Pending', due TEXT)''')
+        conn.commit()
+        conn.close()
+    except Exception as e: 
+        print(f"[!] Warning DB: {e}")
+
+init_memory_db()
+
+def get_all_memories() -> str:
+    if not os.path.exists(MEMORY_DB_PATH): return "Tidak ada memori."
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT category, content FROM long_term_memory ORDER BY id DESC LIMIT 20")
+        rows = cursor.fetchall()
+        conn.close()
+        return "\n".join([f"- [{cat}] {cont}" for cat, cont in rows]) if rows else "Belum ada memori."
+    except Exception as e: 
+        return f"Error DB: {e}"
+
+# ==========================================
+# OTAK UTAMA JARVIS (DIPAKAI WEBSERVER & TELEGRAM)
+# ==========================================
+def ask_jarvis(user_msg: str) -> str:
+    """Fungsi terpusat untuk memproses jawaban Jarvis dengan Waktu, Search, & Memori"""
+    now = datetime.datetime.now()
+    time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
+    memories = get_all_memories()
+
+    system_prompt = f"""
+{JARVIS_PERSONA}
+
+[KONTEKS WAKTU SISTEM REAL-TIME]:
+Hari & Tanggal Sekarang: {time_context}
+
+[MEMORI TERSEMPAN]:
+{memories}
+
+Pesan Pengguna: {user_msg}
+"""
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=system_prompt,
+            config=GROUNDING_CONFIG
+        )
+        return response.text
+    except Exception as e:
+        err_str = str(e)
+        if "429" in err_str or "ResourceExhausted" in err_str:
+            return "Maaf Bos, kuota API Gemini sedang mencapai batas (Rate Limit 429). Mohon tunggu 1 menit ya! ⏳"
+        return f"🚨 Terjadi kesalahan pada otak Jarvis: {err_str}"
+
+# ==========================================
+# FASTAPI SERVER ENGINE + CORS (FLUTTER)
 # ==========================================
 web_app = FastAPI(title="Jarvis Mobile API")
 
-# 🛑 IZINKAN KONEKSI DARI FLUTTER WEB / MOBILE (CORS)
 web_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,35 +134,8 @@ def read_root():
 
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    user_msg = request.message
-    
-    # 🕒 1. Suntikkan Waktu Real-Time Saat Ini
-    now = datetime.datetime.now()
-    time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
-    
-    memories = get_all_memories()
-    
-    system_prompt = f"""
-{JARVIS_PERSONA}
-
-[KONTEKS WAKTU SISTEM REAL-TIME]:
-Hari & Tanggal Sekarang: {time_context}
-
-[MEMORI TERIMPAN]:
-{memories}
-
-Pesan Pengguna: {user_msg}
-"""
-    try:
-        # 🌐 2. Aktifkan Google Search Grounding agar bisa cek cuaca/berita real-time
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=system_prompt,
-            config=GROUNDING_CONFIG
-        )
-        return {"reply": response.text}
-    except Exception as e:
-        return {"reply": f"Maaf Bos, terjadi masalah pada server: {str(e)}"}
+    reply = ask_jarvis(request.message)
+    return {"reply": reply}
 
 def run_fastapi():
     port = int(os.getenv("PORT", 8080))
@@ -103,36 +143,7 @@ def run_fastapi():
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
 # ==========================================
-# DATABASE & MEMORY ENGINE
-# ==========================================
-MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
-
-def init_memory_db():
-    os.makedirs(BASE_DIR, exist_ok=True)
-    try:
-        conn = sqlite3.connect(MEMORY_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS long_term_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task TEXT, status TEXT DEFAULT 'Pending', due TEXT)''')
-        conn.commit()
-        conn.close()
-    except Exception as e: print(f"[!] Warning DB: {e}")
-
-init_memory_db()
-
-def get_all_memories() -> str:
-    if not os.path.exists(MEMORY_DB_PATH): return "Tidak ada memori."
-    try:
-        conn = sqlite3.connect(MEMORY_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT category, content FROM long_term_memory ORDER BY id DESC LIMIT 20")
-        rows = cursor.fetchall()
-        conn.close()
-        return "\n".join([f"- [{cat}] {cont}" for cat, cont in rows]) if rows else "Belum ada memori."
-    except Exception as e: return f"Error DB: {e}"
-
-# ==========================================
-# TELEGRAM HANDLER
+# TELEGRAM BOT HANDLER
 # ==========================================
 def clean_markdown_to_html(text: str) -> str:
     if not text: return ""
@@ -142,25 +153,28 @@ def clean_markdown_to_html(text: str) -> str:
     return text
 
 async def safe_reply(update: Update, text: str):
-    try: await update.message.reply_html(clean_markdown_to_html(text))
-    except: await update.message.reply_text(text)
+    try: 
+        await update.message.reply_html(clean_markdown_to_html(text))
+    except: 
+        await update.message.reply_text(text)
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != ALLOWED_CHAT_ID: return
+    chat_id = str(update.effective_chat.id)
+    
+    # Debug log agar ketahuan jika Chat ID ditolak
+    if chat_id != ALLOWED_CHAT_ID:
+        print(f"⚠️ Ditolak: Pesan masuk dari Chat ID {chat_id} (Diberikan akses hanya ke {ALLOWED_CHAT_ID})")
+        return
+
     user_text = update.message.text or ""
     if not user_text: return
     
-    try:
-        c_res = client.models.generate_content(model=MODEL_NAME, contents=f"{JARVIS_PERSONA}\n\n{user_text}")
-        await safe_reply(update, c_res.text)
-    except Exception as e:
-        await safe_reply(update, f"🚨 Error: {e}")
+    # Gunakan Otak Utama Jarvis
+    reply_text = ask_jarvis(user_text)
+    await safe_reply(update, reply_text)
 
-# ==========================================
-# MAIN EXECUTION
-# ==========================================
 def run_telegram_bot():
-    """Menjalankan Telegram Bot di thread terpisah secara aman"""
+    """Menjalankan Telegram Bot di background thread"""
     while True:
         try:
             print("🤖 Memulai Telegram Bot...")
@@ -168,21 +182,24 @@ def run_telegram_bot():
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
             app.run_polling(drop_pending_updates=True)
         except Exception as e:
-            print(f"⚠️ Telegram Error (Akan auto-restart dalam 5 detik): {e}")
+            print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")
             time.sleep(5)
 
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
 if __name__ == "__main__":
-    print("🤖 Jarvis Mega-Agent Running...")
+    print("🤖 Jarvis Mega-Agent Full Engine Running...")
     
-    # 1. Jalankan Discord
+    # 1. Jalankan Discord Subprocess
     try:
         subprocess.Popen(["python", "jarvis_discord.py"])
     except Exception as e:
         print(f"⚠️ Discord error: {e}")
         
-    # 2. Jalankan Telegram Bot di Background Thread (supaya conflict tidak mematikan server)
+    # 2. Jalankan Telegram Bot di Thread Terpisah
     telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     telegram_thread.start()
 
-    # 3. KUNCI UTAMA: Jalankan FastAPI di MAIN THREAD agar Railway Container selalu HIDUP
+    # 3. Jalankan FastAPI Web Server di Main Thread
     run_fastapi()

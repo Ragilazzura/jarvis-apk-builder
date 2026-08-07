@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:intl/intl.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 void main() {
   runApp(const JarvisApp());
@@ -16,9 +16,9 @@ class JarvisApp extends StatelessWidget {
     return MaterialApp(
       title: 'J A R V I S',
       theme: ThemeData.dark(useMaterial3: true).copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F172A), // Slate Dark background
+        scaffoldBackgroundColor: const Color(0xFF0B0F19),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1E293B),
+          backgroundColor: Color(0xCC111827),
           elevation: 0,
         ),
       ),
@@ -53,18 +53,23 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
 
-  // ⚠️ URL Railway milikmu
   final String _railwayUrl = 'https://worker-production-792b.up.railway.app/chat';
+
+  String _getFormattedTime() {
+    final now = DateTime.now();
+    final hour = now.hour.toString().padLeft(2, '0');
+    final minute = now.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
 
   @override
   void initState() {
     super.initState();
-    // Pesan Salam Pembuka dari Jarvis
     _messages.add(
       ChatMessage(
-        text: 'Sistem online, Bos. Semua modul berjalan normal. Ada yang bisa saya bantu?',
+        text: 'Sistem online, Bos. Otak Neural Core siap memproses perintah Anda.',
         isUser: false,
-        time: DateFormat('HH:mm').format(DateTime.now()),
+        time: _getFormattedTime(),
       ),
     );
   }
@@ -85,7 +90,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    final currentTime = DateFormat('HH:mm').format(DateTime.now());
+    final currentTime = _getFormattedTime();
 
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true, time: currentTime));
@@ -101,7 +106,7 @@ class _ChatScreenState extends State<ChatScreen> {
         body: jsonEncode({'message': text}),
       );
 
-      final replyTime = DateFormat('HH:mm').format(DateTime.now());
+      final replyTime = _getFormattedTime();
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -131,7 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ChatMessage(
             text: '🚨 Gagal terhubung ke Railway: $e',
             isUser: false,
-            time: DateFormat('HH:mm').format(DateTime.now()),
+            time: _getFormattedTime(),
           ),
         );
       });
@@ -148,9 +153,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages.clear();
       _messages.add(
         ChatMessage(
-          text: 'Memori obrolan telah dibersihkan. Sistem siap kembali, Bos.',
+          text: 'Memori obrolan dibersihkan. Sistem siap kembali, Bos.',
           isUser: false,
-          time: DateFormat('HH:mm').format(DateTime.now()),
+          time: _getFormattedTime(),
         ),
       );
     });
@@ -163,21 +168,25 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
+            // 🖼️ 1. LOGO PNG TRANSPARAN DI APPBAR
+            Image.asset(
+              'assets/jarvis.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => const Icon(
+                Icons.blur_on_rounded,
                 color: Colors.cyanAccent,
-                shape: BoxShape.circle,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             const Text(
               'J A R V I S',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 letterSpacing: 2.0,
-                color: Colors.white,
+                color: Colors.cyanAccent,
+                fontSize: 18,
               ),
             ),
           ],
@@ -191,105 +200,119 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
+      // 🖼️ 2. BACKGROUND LOGO WATERMARK TRANSPARAN DI TENGAH CHAT
+      body: Stack(
         children: [
-          // Chat List
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return _buildChatBubble(msg);
-              },
+          // Background Watermark Logo
+          Center(
+            child: Opacity(
+              opacity: 0.15, // Dibuat agak samar supaya tulisan chat tetep jelas
+              child: Image.asset(
+                'assets/jarvis.png',
+                width: MediaQuery.of(context).size.width * 0.65,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const SizedBox(),
+              ),
             ),
           ),
-
-          // Loading Indicator / Typing Status
-          if (_isLoading)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.cyanAccent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Jarvis sedang memproses...',
-                    style: TextStyle(
-                      color: Colors.cyanAccent.shade100,
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
+          
+          // Chat View
+          Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    return _buildChatBubble(msg);
+                  },
+                ),
               ),
-            ),
-
-          // Input Bar
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E293B),
-              border: Border(
-                top: BorderSide(color: Colors.white10, width: 1),
-              ),
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Ketik pesan untuk Jarvis...',
-                        hintStyle: TextStyle(color: Colors.grey.shade500),
-                        filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: const BorderSide(color: Colors.cyanAccent, width: 1),
+              if (_isLoading)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.cyanAccent,
                         ),
                       ),
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: _isLoading ? null : _sendMessage,
-                    borderRadius: BorderRadius.circular(24),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _isLoading ? Colors.grey : Colors.cyanAccent,
-                        shape: BoxShape.circle,
+                      const SizedBox(width: 10),
+                      Text(
+                        'Jarvis sedang merespons...',
+                        style: TextStyle(
+                          color: Colors.cyanAccent.shade100,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.send_rounded,
-                        color: Colors.black,
-                        size: 20,
-                      ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  color: Color(0xEE111827),
+                  border: Border(
+                    top: BorderSide(color: Colors.cyanAccent, width: 0.3),
+                  ),
+                ),
+                child: SafeArea(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Ketik pesan untuk Jarvis...',
+                            hintStyle: TextStyle(color: Colors.grey.shade500),
+                            filled: true,
+                            fillColor: const Color(0xFF0F172A),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: const BorderSide(color: Colors.cyanAccent, width: 1),
+                            ),
+                          ),
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: _isLoading ? null : _sendMessage,
+                        borderRadius: BorderRadius.circular(24),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _isLoading ? Colors.grey : Colors.cyanAccent,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.send_rounded,
+                            color: Colors.black,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -313,39 +336,47 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6),
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75,
+            maxWidth: MediaQuery.of(context).size.width * 0.78,
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: isUser ? const Color(0xFF2563EB) : const Color(0xFF334155),
+            color: isUser 
+                ? const Color(0xDD0284C7) 
+                : const Color(0xEE1E293B),
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
               bottomLeft: Radius.circular(isUser ? 16 : 4),
               bottomRight: Radius.circular(isUser ? 4 : 16),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
+            border: Border.all(
+              color: isUser ? Colors.cyan.shade300.withOpacity(0.3) : Colors.cyanAccent.withOpacity(0.15),
+              width: 0.8,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                msg.text,
-                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+              MarkdownBody(
+                data: msg.text,
+                styleSheet: MarkdownStyleSheet(
+                  p: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                  strong: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                  listBullet: const TextStyle(color: Colors.cyanAccent),
+                  code: const TextStyle(
+                    backgroundColor: Colors.black38,
+                    color: Colors.cyanAccent,
+                    fontFamily: 'monospace',
+                  ),
+                ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Align(
                 alignment: Alignment.bottomRight,
                 child: Text(
                   msg.time,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                    color: Colors.white.withOpacity(0.4),
                     fontSize: 10,
                   ),
                 ),
