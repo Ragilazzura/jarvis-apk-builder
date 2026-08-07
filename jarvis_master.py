@@ -36,7 +36,7 @@ BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
 
 # 🟢 PENYESUAIAN NAMA MODEL RESMI GEMINI
-MODEL_NAME = "gemini-3.1-flash-lite"
+MODEL_NAME = "gemini-2.5-flash-lite"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
