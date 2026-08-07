@@ -179,7 +179,7 @@ def run_telegram_bot():
         try:
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler)
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
             print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")
