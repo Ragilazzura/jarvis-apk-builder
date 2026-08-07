@@ -96,10 +96,10 @@ def search_vector_db(query: str, n_results: int = 3) -> str:
     return get_all_memories()
 
 # ==========================================
-# OTAK UTAMA JARVIS (DIPAKAI WEBSERVER & TELEGRAM)
+# OTAK UTAMA JARVIS (AUTO-FALLBACK MODEL)
 # ==========================================
 def ask_jarvis(user_msg: str) -> str:
-    """Fungsi terpusat untuk memproses jawaban Jarvis dengan Waktu, Search, & Memori"""
+    """Fungsi terpusat dengan Auto-Fallback ke beberapa model Gemini resmi"""
     now = datetime.datetime.now()
     time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
     memories = get_all_memories()
@@ -115,18 +115,35 @@ Hari & Tanggal Sekarang: {time_context}
 
 Pesan Pengguna: {user_msg}
 """
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=system_prompt,
-            config=GROUNDING_CONFIG
-        )
-        return response.text
-    except Exception as e:
-        err_str = str(e)
-        if "429" in err_str or "ResourceExhausted" in err_str:
-            return "Maaf Bos, kuota API Gemini sedang mencapai batas (Rate Limit 429). Mohon tunggu 1 menit ya! ⏳"
-        return f"🚨 Terjadi kesalahan pada otak Jarvis: {err_str}"
+    # 🟢 DAFTAR MODEL RESMI GOOGLE (Diurutkan dari yang paling utama)
+    MODEL_CANDIDATES = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.0-flash",
+        "gemini-3.5-flash-lite",
+    ]
+
+    for model_name in MODEL_CANDIDATES:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=system_prompt,
+                config=GROUNDING_CONFIG
+            )
+            return response.text
+        except Exception as e:
+            err_str = str(e)
+            # Jika 404 (model tidak ada) atau 429 (kuota penuh), lewati dan coba model berikutnya
+            if "404" in err_str or "429" in err_str or "ResourceExhausted" in err_str:
+                print(f"⚠️ Model {model_name} bermasalah ({'404 Not Found' if '404' in err_str else '429 Limit'}), mencoba model cadangan...")
+                continue
+            # Jika error lain, langsung kembalikan
+            return f"🚨 Terjadi kesalahan pada otak Jarvis: {err_str}"
+
+    return "Maaf Bos, semua jalur model API Gemini sedang penuh atau tidak tersedia. Mohon tunggu 1 menit ya! ⏳"
 
 # ==========================================
 # FASTAPI SERVER ENGINE + CORS (FLUTTER)
