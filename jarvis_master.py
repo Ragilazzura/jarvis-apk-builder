@@ -174,13 +174,13 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(update, reply_text)
 
 def run_telegram_bot():
-    """Menjalankan Telegram Bot di background thread"""
+    """Menjalankan Telegram Bot di background thread secara aman"""
     while True:
         try:
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
-            app.run_polling(drop_pending_updates=True)
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler)
+            app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
             print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")
             time.sleep(5)
