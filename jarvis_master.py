@@ -12,6 +12,10 @@ import html
 import threading
 import time
 import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import networkx as nx
 from PIL import Image
 from bs4 import BeautifulSoup
 import edge_tts
@@ -342,6 +346,36 @@ def generate_and_test_code(prompt_request: str, target_filename: str = "generate
     return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan.", target_filename
 
 # ==========================================
+# MARK-UI: DIAGRAM GENERATOR ENGINE
+# ==========================================
+def generate_system_diagram(nodes_and_edges: list, title: str = "System Architecture") -> str:
+    """Mengubah struktur node/alur menjadi gambar diagram visual"""
+    try:
+        G = nx.DiGraph()
+        for edge in nodes_and_edges:
+            if len(edge) == 2:
+                G.add_edge(edge[0], edge[1])
+
+        plt.figure(figsize=(10, 6))
+        pos = nx.spring_layout(G, k=0.9)
+        
+        nx.draw_networkx_nodes(G, pos, node_size=3000, node_color="#1f2937", alpha=0.9)
+        nx.draw_networkx_edges(G, pos, width=2, alpha=0.7, edge_color="#3b82f6", arrowsize=20)
+        nx.draw_networkx_labels(G, pos, font_size=10, font_color="white", font_weight="bold", font_family="sans-serif")
+
+        plt.title(title, fontsize=14, fontweight='bold', color="#111827")
+        plt.axis('off')
+        plt.tight_layout()
+
+        output_path = f"diagram_{int(time.time())}.png"
+        plt.savefig(output_path, dpi=200, bbox_inches='tight')
+        plt.close()
+        return output_path
+    except Exception as e:
+        print(f"[!] Diagram Error: {e}")
+        return ""
+
+# ==========================================
 # PROACTIVE SCHEDULER
 # ==========================================
 def daily_briefing_job():
@@ -597,6 +631,32 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         if os.path.exists(ogg_path):
             os.remove(ogg_path)
 
+async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /diagram <topik>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if not context.args:
+        await update.message.reply_text("Sertakan alur/topik diagramnya ya, Bos!\nContoh: `/diagram Client -> FastAPI -> SQLite -> Gemini`")
+        return
+
+    raw_input = " ".join(context.args)
+    await update.message.reply_text("🎨 Jarvis sedang menggambar diagram visual...")
+
+    # Parser sederhana alur yang dipisahkan panah '->'
+    steps = [step.strip() for step in raw_input.split("->")]
+    edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)] if len(steps) > 1 else []
+
+    if edges:
+        diagram_img = generate_system_diagram(edges, title="STARK SYSTEM WORKFLOW")
+        if diagram_img and os.path.exists(diagram_img):
+            with open(diagram_img, 'rb') as photo:
+                await update.message.reply_photo(photo=photo, caption=f"📊 *Diagram Visual Workflow*\n`{raw_input}`")
+            os.remove(diagram_img)
+            return
+
+    await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`, contoh:\n`/diagram User -> Bot -> Gemini API`")
+
 def run_telegram_bot():
     while True:
         try:
@@ -618,6 +678,7 @@ def run_telegram_bot():
             app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
+            app.add_handler(CommandHandler("diagram", diagram_command_handler))
             
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
