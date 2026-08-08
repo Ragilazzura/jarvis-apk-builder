@@ -467,6 +467,43 @@ def generate_system_diagram(nodes_and_edges: list, title: str = "System Architec
         return ""
 
 # ==========================================
+# PROJECT HEPHAESTUS: DEVOPS & GIT ENGINE
+# ==========================================
+def execute_git_workflow(action: str, commit_msg: str = "") -> str:
+    """Mengeksekusi workflow Git secara otomatis di repository lokal"""
+    try:
+        if action == "status":
+            res = subprocess.run(["git", "status"], capture_output=True, text=True, check=True)
+            return f"📋 *HEPHAESTUS GIT STATUS:*\n```\n{res.stdout}\n```"
+            
+        elif action == "pull":
+            res = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+            return f"📥 *HEPHAESTUS GIT PULL:*\n```\n{res.stdout}\n```"
+            
+        elif action == "push":
+            if not commit_msg:
+                commit_msg = f"Auto-deploy by Jarvis HEPHAESTUS - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            # 1. Git Add
+            subprocess.run(["git", "add", "."], capture_output=True, text=True, check=True)
+            
+            # 2. Git Commit
+            commit_res = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True)
+            
+            # 3. Git Push
+            push_res = subprocess.run(["git", "push"], capture_output=True, text=True, check=True)
+            
+            return f"🚀 *HEPHAESTUS GIT PUSH SUCCESSFUL!*\n\n*Commit Message:* `{commit_msg}`\n\n*Log Output:*\n```\n{commit_res.stdout}\n{push_res.stdout}\n```"
+            
+        else:
+            return "Action tidak dikenali, Bos. Gunakan `status`, `pull`, atau `push`."
+            
+    except subprocess.CalledProcessError as e:
+        return f"🚨 *HEPHAESTUS GIT ERROR:*\n```\n{e.stderr or e.stdout}\n```"
+    except Exception as e:
+        return f"🚨 *EXECUTION ERROR:* {e}"
+
+# ==========================================
 # PROACTIVE SCHEDULER
 # ==========================================
 def daily_briefing_job():
@@ -941,6 +978,48 @@ async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_
         error_msg = traceback.format_exc()
         threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
+async def git_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /git <action> [commit message]"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[HEPHAESTUS Git Access Attempt]")
+        return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses Git ditutup.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "⚒️ *PROJECT HEPHAESTUS DEVOPS ENGINE*\n\n"
+            "Format perintah:\n"
+            "• `/git status` - Cek status perubahan file\n"
+            "• `/git pull` - Tarik pembaruan dari GitHub\n"
+            "• `/git push <pesan commit>` - Otomatis add, commit, & push ke Cloud",
+            parse_mode="Markdown"
+        )
+        return
+
+    action = context.args[0].lower()
+    commit_msg = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+
+    await update.message.reply_text(f"⚒️ *HEPHAESTUS sedang mengeksekusi Git {action.upper()}...*")
+
+    def run_async_git():
+        report = execute_git_workflow(action, commit_msg)
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": report,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url, json=payload)
+        except Exception as e:
+            print(f"[!] Gagal kirim output Git: {e}")
+
+    threading.Thread(target=run_async_git, daemon=True).start()
+
 # ==========================================
 # PROJECT STARK-OVERSEER: INTERACTIVE MENU ENGINE
 # ==========================================
@@ -1063,6 +1142,7 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("cmd", cmd_command_handler))
             app.add_handler(CommandHandler("journal", journal_command_handler))
             app.add_handler(CommandHandler("testbug", testbug_command_handler))
+            app.add_handler(CommandHandler("git", git_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
