@@ -18,6 +18,7 @@ import chromadb
 from pypdf import PdfReader
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- IMPORT FASTAPI & CORSMiddleware ---
 from fastapi import FastAPI
@@ -28,8 +29,8 @@ import uvicorn
 # ==========================================
 # KONFIGURASI UTAMA & MODEL API
 # ==========================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AQ.Ab8RN6KUq2vS-wQLyLHiU-l3c1mUkXsQTEhX6CVwznt1FdC-dA")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8716909256:AAEV2tAe1nKRXgMfFBD_-LkVkN9xP3NQnSA")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
@@ -64,6 +65,10 @@ GAYA BAHASA & KEPRIBADIAN:
 # DATABASE & MEMORY ENGINE
 # ==========================================
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
+CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
+
+chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+vector_collection = chroma_client.get_or_create_collection(name="jarvis_knowledge")
 
 def init_memory_db():
     os.makedirs(BASE_DIR, exist_ok=True)
@@ -76,6 +81,51 @@ def init_memory_db():
         conn.close()
     except Exception as e: 
         print(f"[!] Warning DB: {e}")
+
+def add_to_vector_db(text: str, doc_id: str, metadata: dict = None):
+    """Menyimpan teks/dokumen ke memori vektor ChromaDB"""
+    try:
+        vector_collection.add(
+            documents=[text],
+            ids=[doc_id],
+            metadatas=[metadata or {"source": "user_chat"}]
+        )
+        return True
+    except Exception as e:
+        print(f"[!] Error ChromaDB Add: {e}")
+        return False
+
+def search_vector_db(query: str, n_results: int = 3) -> str:
+    """Mencari pengetahuan relevan dari ChromaDB"""
+    try:
+        results = vector_collection.query(
+            query_texts=[query],
+            n_results=n_results
+        )
+        docs = results.get('documents', [[]])[0]
+        if docs:
+            return "\n[PENGETAHUAN TERKAIT DARI CHROMADB]:\n" + "\n".join([f"• {d}" for d in docs])
+        return ""
+    except Exception as e:
+        print(f"[!] Error ChromaDB Search: {e}")
+        return ""
+
+def process_pdf_document(pdf_path: str) -> str:
+    """Membaca file PDF dan memasukkan isinya ke memori Jarvis"""
+    try:
+        reader = PdfReader(pdf_path)
+        extracted_text = ""
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text:
+                extracted_text += f"\n--- Halaman {i+1} ---\n" + text
+        
+        # Simpan ke ChromaDB
+        doc_id = f"pdf_{os.path.basename(pdf_path)}_{int(time.time())}"
+        add_to_vector_db(extracted_text[:4000], doc_id, {"source": os.path.basename(pdf_path)})
+        return f"Dokumen `{os.path.basename(pdf_path)}` berhasil dipelajari dan disimpan ke ChromaDB!"
+    except Exception as e:
+        return f"Gagal membaca PDF: {e}"
 
 init_memory_db()
 
@@ -114,6 +164,7 @@ def ask_jarvis(user_msg: str) -> str:
     now = datetime.datetime.now()
     time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
     memories = get_all_memories()
+    vector_context = search_vector_db(user_msg)
 
     system_prompt = f"""
 {JARVIS_PERSONA}
@@ -123,11 +174,12 @@ Hari & Tanggal Sekarang: {time_context}
 
 [MEMORI TERSEMPAN]:
 {memories}
-
+{vector_context}
 Pesan Pengguna: {user_msg}
 """
     # 🟢 DAFTAR MODEL YANG PASTI VALID DI AKUN & SDK KAMU
     MODEL_CANDIDATES = [
+        "gemini-3.6-flash",
         "gemini-3.0",
         "gemini-3.1-lite",
         "gemini-3.5-flash",
@@ -144,15 +196,14 @@ Pesan Pengguna: {user_msg}
                 config=GROUNDING_CONFIG
             )
             clean_text = response.text
-            clean_text = re.sub(r'#+\s*', '', clean_text)  # Hapus tanda pagar header
-            clean_text = clean_text.replace('**', '').replace('* ', '• ') # Ubah * list jadi bullet rapi
+            clean_text = re.sub(r'#+\s*', '', clean_text)
+            clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
+            clean_text = clean_text.replace('**', '').replace('* ', '• ')
 
             return clean_text
         except Exception as e:
             err_str = str(e)
             print(f"❌ Gagal pada model {model_name} (with Grounding): {err_str}")
-            
-            # Jika gagal karena grounding/limit, coba sekali lagi TANPA Grounding (Pure AI)
             try:
                 print(f"🔄 Retry {model_name} TANPA Grounding Search...")
                 response = client.models.generate_content(
@@ -170,6 +221,87 @@ Pesan Pengguna: {user_msg}
                 continue
 
     return "Maaf Bos, server Google sedang membatasi kuota API di wilayah ini. Mohon tunggu 30 detik ya! ⏳"
+
+async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
+    """Mengubah teks balasan Jarvis menjadi audio Voice Note"""
+    try:
+        # Bersihkan teks dari simbol agar pengucapan Ardi Neural lancar
+        clean_speech = re.sub(r'[^\w\s,?!.]', '', text)
+        communicate = edge_tts.Communicate(clean_speech, VOICE_ACTOR)
+        await communicate.save(output_path)
+        return output_path
+    except Exception as e:
+        print(f"[!] Voice generation error: {e}")
+        return ""
+
+# ==========================================
+# PROACTIVE SCHEDULER
+# ==========================================
+def daily_briefing_job():
+    """Tugas harian jam 07.00 pagi: Kirim briefing ke Telegram"""
+    briefing_prompt = "Berikan briefing pagi singkat, cuaca umum, dan motivasi untuk Bos memulai hari."
+    briefing_text = ask_jarvis(briefing_prompt)
+    
+    # Kirim langsung via Telegram API
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"🌅 *GOOD MORNING BRIEFING*\n\n{briefing_text}",
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim briefing: {e}")
+
+# Jalankan Scheduler
+scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
+scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0) # Setiap jam 07:00 WIB
+scheduler.start()
+
+# ==========================================
+# AUTONOMOUS CODE AGENT ENGINE
+# ==========================================
+def test_code_execution(file_path):
+    """Mengecek apakah kodingan buatan Jarvis bebas Syntax Error"""
+    try:
+        result = subprocess.run(
+            ["python", "-m", "py_compile", file_path],
+            capture_output=True, text=True, check=True
+        )
+        return True, "Syntax Valid!"
+    except subprocess.CalledProcessError as e:
+        return False, e.stderr
+
+def generate_and_test_code(prompt_request: str, target_filename: str = "generated_app.py") -> str:
+    """Membuat kode program, menguji, dan otomatis memperbaiki jika error"""
+    error_context = ""
+    max_attempts = 3
+    
+    for attempt in range(1, max_attempts + 1):
+        full_prompt = f"""
+Kamu adalah Software Developer Agent otomatis.
+Buatkan kode program Python lengkap berdasarkan instruksi berikut:
+{prompt_request}
+
+{f'PERBAIKAN ERROR PERCOBAAN SEBELUMNYA: {error_context}' if error_context else ''}
+
+Berikan HANYA kode program murni tanpa penjelasan atau markdown.
+"""
+        code_result = ask_jarvis(full_prompt)
+        # Clean markdown codeblocks
+        code_result = re.sub(r'```python|```', '', code_result).strip()
+        
+        with open(target_filename, "w", encoding="utf-8") as f:
+            f.write(code_result)
+            
+        is_success, log_msg = test_code_execution(target_filename)
+        if is_success:
+            return f"✅ *Code Agent Success!* File `{target_filename}` berhasil dibuat & lolos tes sintaks (Percobaan {attempt})."
+        else:
+            error_context = log_msg
+            
+    return f"🚨 Code Agent gagal setelah {max_attempts}x percobaan. Error:\n`{error_context}`"
 
 # ==========================================
 # FASTAPI SERVER ENGINE + CORS (FLUTTER)

@@ -8,7 +8,7 @@ from jarvis_master import (
     get_all_memories, search_vector_db, clean_markdown_to_html
 )
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "MTUzNDgwMTM2MzM0NTczOTkxNg.G2Wuaa.F-pDGEkaTb9OjAcRmBO1XlzTDa80bwvHL2knoE")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Setup Intents Discord
 intents = discord.Intents.default()
