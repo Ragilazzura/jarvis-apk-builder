@@ -36,7 +36,7 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
 
-# 🟢 PENYESUAIAN NAMA MODEL RESMI GEMINI
+# Model Utama Gemini
 MODEL_NAME = "gemini-3.6-flash"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
@@ -62,7 +62,7 @@ GAYA BAHASA & KEPRIBADIAN:
 """
 
 # ==========================================
-# DATABASE & MEMORY ENGINE
+# DATABASE & MEMORY ENGINE (SQLITE + CHROMADB)
 # ==========================================
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
 CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
@@ -82,8 +82,9 @@ def init_memory_db():
     except Exception as e: 
         print(f"[!] Warning DB: {e}")
 
+init_memory_db()
+
 def add_to_vector_db(text: str, doc_id: str, metadata: dict = None):
-    """Menyimpan teks/dokumen ke memori vektor ChromaDB"""
     try:
         vector_collection.add(
             documents=[text],
@@ -96,7 +97,6 @@ def add_to_vector_db(text: str, doc_id: str, metadata: dict = None):
         return False
 
 def search_vector_db(query: str, n_results: int = 3) -> str:
-    """Mencari pengetahuan relevan dari ChromaDB"""
     try:
         results = vector_collection.query(
             query_texts=[query],
@@ -111,7 +111,6 @@ def search_vector_db(query: str, n_results: int = 3) -> str:
         return ""
 
 def process_pdf_document(pdf_path: str) -> str:
-    """Membaca file PDF dan memasukkan isinya ke memori Jarvis"""
     try:
         reader = PdfReader(pdf_path)
         extracted_text = ""
@@ -120,14 +119,11 @@ def process_pdf_document(pdf_path: str) -> str:
             if text:
                 extracted_text += f"\n--- Halaman {i+1} ---\n" + text
         
-        # Simpan ke ChromaDB
         doc_id = f"pdf_{os.path.basename(pdf_path)}_{int(time.time())}"
         add_to_vector_db(extracted_text[:4000], doc_id, {"source": os.path.basename(pdf_path)})
-        return f"Dokumen `{os.path.basename(pdf_path)}` berhasil dipelajari dan disimpan ke ChromaDB!"
+        return f"Dokumen `{os.path.basename(pdf_path)}` berhasil dipelajari dan disimpan ke memori ChromaDB!"
     except Exception as e:
         return f"Gagal membaca PDF: {e}"
-
-init_memory_db()
 
 def get_all_memories() -> str:
     if not os.path.exists(MEMORY_DB_PATH): return "Tidak ada memori."
@@ -141,7 +137,6 @@ def get_all_memories() -> str:
     except Exception as e: 
         return f"Error DB: {e}"
 
-# 🟢 FUNGSI TAMBAHAN UNTUK MEMENUHI DEPENDENSI DISCORD & TELEGRAM
 def save_memory(category: str, content: str) -> str:
     try:
         conn = sqlite3.connect(MEMORY_DB_PATH)
@@ -153,12 +148,8 @@ def save_memory(category: str, content: str) -> str:
     except Exception as e:
         return f"Gagal menyimpan memori: {e}"
 
-def search_vector_db(query: str, n_results: int = 3) -> str:
-    """Mencari memori terintegrasi (dipakai oleh Discord Bot)"""
-    return get_all_memories()
-
 # ==========================================
-# OTAK UTAMA JARVIS (FIXED MODELS FOR SDK v1beta)
+# OTAK UTAMA JARVIS
 # ==========================================
 def ask_jarvis(user_msg: str) -> str:
     now = datetime.datetime.now()
@@ -175,9 +166,9 @@ Hari & Tanggal Sekarang: {time_context}
 [MEMORI TERSEMPAN]:
 {memories}
 {vector_context}
+
 Pesan Pengguna: {user_msg}
 """
-    # 🟢 DAFTAR MODEL YANG PASTI VALID DI AKUN & SDK KAMU
     MODEL_CANDIDATES = [
         "gemini-3.6-flash",
         "gemini-3.0",
@@ -189,7 +180,6 @@ Pesan Pengguna: {user_msg}
     for model_name in MODEL_CANDIDATES:
         try:
             print(f"🔄 Mencoba menghubungi model: {model_name}...")
-            # Coba jalankan dengan Grounding (Google Search)
             response = client.models.generate_content(
                 model=model_name,
                 contents=system_prompt,
@@ -198,7 +188,7 @@ Pesan Pengguna: {user_msg}
             clean_text = response.text
             clean_text = re.sub(r'#+\s*', '', clean_text)
             clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
-            clean_text = clean_text.replace('**', '').replace('* ', '• ')
+            clean_text = clean_text.replace('**', '').replace('*', '')
 
             return clean_text
         except Exception as e:
@@ -212,8 +202,9 @@ Pesan Pengguna: {user_msg}
                 )
                 print(f"✅ Berhasil merespons (Tanpa Search) menggunakan model: {model_name}")
                 clean_text = response.text
-                clean_text = re.sub(r'#+\s*', '', clean_text)  # Hapus tanda pagar header
-                clean_text = clean_text.replace('**', '').replace('* ', '• ') # Ubah * list jadi bullet rapi
+                clean_text = re.sub(r'#+\s*', '', clean_text)
+                clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
+                clean_text = clean_text.replace('**', '').replace('*', '')
 
                 return clean_text
             except Exception as e2:
@@ -222,10 +213,11 @@ Pesan Pengguna: {user_msg}
 
     return "Maaf Bos, server Google sedang membatasi kuota API di wilayah ini. Mohon tunggu 30 detik ya! ⏳"
 
+# ==========================================
+# VOICE ENGINE (EDGE-TTS)
+# ==========================================
 async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
-    """Mengubah teks balasan Jarvis menjadi audio Voice Note"""
     try:
-        # Bersihkan teks dari simbol agar pengucapan Ardi Neural lancar
         clean_speech = re.sub(r'[^\w\s,?!.]', '', text)
         communicate = edge_tts.Communicate(clean_speech, VOICE_ACTOR)
         await communicate.save(output_path)
@@ -235,35 +227,9 @@ async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg
         return ""
 
 # ==========================================
-# PROACTIVE SCHEDULER
-# ==========================================
-def daily_briefing_job():
-    """Tugas harian jam 07.00 pagi: Kirim briefing ke Telegram"""
-    briefing_prompt = "Berikan briefing pagi singkat, cuaca umum, dan motivasi untuk Bos memulai hari."
-    briefing_text = ask_jarvis(briefing_prompt)
-    
-    # Kirim langsung via Telegram API
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": f"🌅 *GOOD MORNING BRIEFING*\n\n{briefing_text}",
-        "parse_mode": "HTML"
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Gagal kirim briefing: {e}")
-
-# Jalankan Scheduler
-scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
-scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0) # Setiap jam 07:00 WIB
-scheduler.start()
-
-# ==========================================
 # AUTONOMOUS CODE AGENT ENGINE
 # ==========================================
 def test_code_execution(file_path):
-    """Mengecek apakah kodingan buatan Jarvis bebas Syntax Error"""
     try:
         result = subprocess.run(
             ["python", "-m", "py_compile", file_path],
@@ -273,8 +239,7 @@ def test_code_execution(file_path):
     except subprocess.CalledProcessError as e:
         return False, e.stderr
 
-def generate_and_test_code(prompt_request: str, target_filename: str = "generated_app.py") -> str:
-    """Membuat kode program, menguji, dan otomatis memperbaiki jika error"""
+def generate_and_test_code(prompt_request: str, target_filename: str = "generated_app.py") -> tuple[bool, str, str]:
     error_context = ""
     max_attempts = 3
     
@@ -289,7 +254,6 @@ Buatkan kode program Python lengkap berdasarkan instruksi berikut:
 Berikan HANYA kode program murni tanpa penjelasan atau markdown.
 """
         code_result = ask_jarvis(full_prompt)
-        # Clean markdown codeblocks
         code_result = re.sub(r'```python|```', '', code_result).strip()
         
         with open(target_filename, "w", encoding="utf-8") as f:
@@ -297,11 +261,32 @@ Berikan HANYA kode program murni tanpa penjelasan atau markdown.
             
         is_success, log_msg = test_code_execution(target_filename)
         if is_success:
-            return f"✅ *Code Agent Success!* File `{target_filename}` berhasil dibuat & lolos tes sintaks (Percobaan {attempt})."
+            return True, f"✅ Code Agent Success! File `{target_filename}` berhasil dibuat & lolos tes sintaks (Percobaan {attempt}).", target_filename
         else:
             error_context = log_msg
             
-    return f"🚨 Code Agent gagal setelah {max_attempts}x percobaan. Error:\n`{error_context}`"
+    return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan. Error:\n`{error_context}`", target_filename
+
+# ==========================================
+# PROACTIVE SCHEDULER
+# ==========================================
+def daily_briefing_job():
+    briefing_prompt = "Berikan briefing pagi singkat, cuaca umum, dan motivasi untuk Bos memulai hari."
+    briefing_text = ask_jarvis(briefing_prompt)
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim briefing: {e}")
+
+scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
+scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
+scheduler.start()
 
 # ==========================================
 # FASTAPI SERVER ENGINE + CORS (FLUTTER)
@@ -334,7 +319,7 @@ def run_fastapi():
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
 # ==========================================
-# TELEGRAM BOT HANDLER
+# TELEGRAM BOT HANDLERS & COMMANDS
 # ==========================================
 def clean_markdown_to_html(text: str) -> str:
     if not text: return ""
@@ -351,26 +336,82 @@ async def safe_reply(update: Update, text: str):
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    
-    # Debug log agar ketahuan jika Chat ID ditolak
-    if chat_id != ALLOWED_CHAT_ID:
-        print(f"⚠️ Ditolak: Pesan masuk dari Chat ID {chat_id} (Diberikan akses hanya ke {ALLOWED_CHAT_ID})")
-        return
+    if chat_id != ALLOWED_CHAT_ID: return
 
     user_text = update.message.text or ""
     if not user_text: return
     
-    # Gunakan Otak Utama Jarvis
     reply_text = ask_jarvis(user_text)
     await safe_reply(update, reply_text)
 
+async def voice_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /voice <pesan>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    user_prompt = " ".join(context.args) if context.args else "Halo Bos, ada yang bisa Jarvis bantu?"
+    reply_text = ask_jarvis(user_prompt)
+    
+    voice_path = await generate_voice_response(reply_text)
+    if voice_path and os.path.exists(voice_path):
+        with open(voice_path, 'rb') as voice_file:
+            await update.message.reply_voice(voice=voice_file, caption=f"💬 {reply_text[:100]}...")
+        os.remove(voice_path)
+    else:
+        await safe_reply(update, reply_text)
+
+async def code_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /code <instruksi>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if not context.args:
+        await update.message.reply_text("Mohon sertakan instruksi kodingannya, Bos!\nContoh: `/code buatkan script scraper harga crypto`")
+        return
+
+    prompt_req = " ".join(context.args)
+    await update.message.reply_text("🤖 Jarvis Code Agent sedang memproses & menguji kodingan...")
+
+    is_success, status_msg, file_path = generate_and_test_code(prompt_req)
+    await update.message.reply_text(status_msg)
+
+    if is_success and os.path.exists(file_path):
+        with open(file_path, 'rb') as doc:
+            await update.message.reply_document(document=doc, filename=file_path)
+
+async def pdf_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler upload dokumen PDF"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    document = update.message.document
+    if document.mime_type == 'application/pdf':
+        await update.message.reply_text("📥 Menerima file PDF, Jarvis sedang mempelajari isinya...")
+        
+        file = await context.bot.get_file(document.file_id)
+        temp_pdf_path = f"temp_{document.file_name}"
+        await file.download_to_drive(temp_pdf_path)
+
+        res_msg = process_pdf_document(temp_pdf_path)
+        await update.message.reply_text(res_msg)
+
+        if os.path.exists(temp_pdf_path):
+            os.remove(temp_pdf_path)
+
 def run_telegram_bot():
-    """Menjalankan Telegram Bot di background thread secara aman"""
     while True:
         try:
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+            
+            # Register Command Handlers
+            app.add_handler(CommandHandler("voice", voice_command_handler))
+            app.add_handler(CommandHandler("code", code_command_handler))
+            
+            # Register Message Handlers
+            app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
+            
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
             print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")
@@ -382,15 +423,12 @@ def run_telegram_bot():
 if __name__ == "__main__":
     print("🤖 Jarvis Mega-Agent Full Engine Running...")
     
-    # 1. Jalankan Discord Subprocess
     try:
         subprocess.Popen(["python", "jarvis_discord.py"])
     except Exception as e:
         print(f"⚠️ Discord error: {e}")
         
-    # 2. Jalankan Telegram Bot di Thread Terpisah
     telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     telegram_thread.start()
 
-    # 3. Jalankan FastAPI Web Server di Main Thread
     run_fastapi()
