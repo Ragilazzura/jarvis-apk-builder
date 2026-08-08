@@ -431,6 +431,43 @@ scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
 scheduler.start()
 
 # ==========================================
+# PROJECT E.D.I.T.H.: TERMINAL COMMANDER ENGINE
+# ==========================================
+def execute_terminal_command(command_str: str) -> str:
+    """Mengeksekusi perintah terminal/shell secara aman di host machine"""
+    # Blacklist perintah berbahaya demi keamanan
+    blacklisted_keywords = ["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:"]
+    for kw in blacklisted_keywords:
+        if kw in command_str.lower():
+            return "🚨 *STARK SECURITY PROTOCOL:* Perintah ini diblokir demi keamanan sistem!"
+
+    try:
+        print(f"⚡ [E.D.I.T.H.] Executing Shell Command: '{command_str}'...")
+        # Jalankan perintah via subprocess
+        process = subprocess.run(
+            command_str,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30 # Timeout 30 detik
+        )
+        
+        stdout_text = process.stdout.strip()
+        stderr_text = process.stderr.strip()
+
+        output = ""
+        if stdout_text:
+            output += f"📤 *STDOUT:*\n`{stdout_text[:3000]}`" # Limit output agar tidak spam chat
+        if stderr_text:
+            output += f"\n⚠️ *STDERR:*\n`{stderr_text[:1000]}`"
+
+        return output if output else "✅ Perintah berhasil dieksekusi tanpa output."
+    except subprocess.TimeoutExpired:
+        return "⏳ *Execution Timeout:* Perintah memakan waktu lebih dari 30 detik."
+    except Exception as e:
+        return f"🚨 *Execution Error:* {e}"
+
+# ==========================================
 # FASTAPI SERVER ENGINE + IOT WEBHOOK BRIDGE
 # ==========================================
 web_app = FastAPI(title="Jarvis Mobile & IoT API")
@@ -725,6 +762,40 @@ async def research_command_handler(update: Update, context: ContextTypes.DEFAULT
 
     threading.Thread(target=run_async_research, daemon=True).start()
 
+async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /cmd <shell command>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[E.D.I.T.H. Terminal Intrusion Attempt]")
+        return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses terminal ditutup.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Sertakan perintah shell yang mau dijalankan ya, Bos!\nContoh:\n`/cmd dir` (di Windows)\n`/cmd git status`\n`/cmd free -m`")
+        return
+
+    command_to_run = " ".join(context.args)
+    await update.message.reply_text(f"⚡ *E.D.I.T.H. Executing:* `{command_to_run}`...")
+
+    # Eksekusi di thread terpisah agar bot tidak ngelag/freeze
+    def run_async_cmd():
+        result = execute_terminal_command(command_to_run)
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": f"💻 *E.D.I.T.H. TERMINAL OUTPUT*\n\n{result}",
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url, json=payload)
+        except Exception as e:
+            print(f"[!] Gagal kirim output terminal: {e}")
+
+    threading.Thread(target=run_async_cmd, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -748,6 +819,7 @@ def run_telegram_bot():
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
             app.add_handler(CommandHandler("diagram", diagram_command_handler))
             app.add_handler(CommandHandler("research", research_command_handler))
+            app.add_handler(CommandHandler("cmd", cmd_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
