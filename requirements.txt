@@ -17,3 +17,4 @@ pydub
 matplotlib
 networkx
 duckduckgo_search
+playwright

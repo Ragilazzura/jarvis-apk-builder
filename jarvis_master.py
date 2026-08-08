@@ -32,7 +32,7 @@ from telegram.ext import (
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from duckduckgo_search import DDGS
-
+from playwright.async_api import async_playwright
 # --- FASTAPI & MIDDLEWARE IMPORTS ---
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -588,6 +588,54 @@ def veronica_global_exception_handler(exctype, value, tb):
 
 sys.excepthook = veronica_global_exception_handler
 
+async def execute_browser_automation(url: str, action: str = "screenshot", form_data: dict = None) -> tuple[bool, str, str]:
+    """
+    Mengeksekusi aksi browser headless otomatis menggunakan Playwright.
+    action: 'screenshot' | 'extract_text' | 'click_and_capture'
+    """
+    print(f"🌐 [FRIDAY BROWSER] Starting headless session for: {url} (Action: {action})...")
+    
+    try:
+        async with async_playwright() as p:
+            # Jalankan browser Chromium tanpa GUI (Headless)
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            page = await context.new_page()
+            
+            # Buka URL target
+            await page.goto(url, timeout=30000, wait_until="networkidle")
+            
+            if action == "screenshot":
+                screenshot_path = f"web_snap_{int(time.time())}.png"
+                await page.screenshot(path=screenshot_path, full_page=True)
+                await browser.close()
+                return True, "✅ Screenshot halaman web berhasil diambil, Bos!", screenshot_path
+                
+            elif action == "extract_text":
+                content = await page.inner_text("body")
+                await browser.close()
+                clean_content = "\n".join([line.strip() for line in content.splitlines() if line.strip()])[:3000]
+                return True, f"📄 *HASIL EKSTRAKSI TEKS WEB:*\n\n{clean_content}", ""
+
+            elif action == "fill_form" and form_data:
+                # Contoh pengisian form dinamis
+                for selector, value in form_data.items():
+                    await page.fill(selector, value)
+                
+                screenshot_path = f"form_filled_{int(time.time())}.png"
+                await page.screenshot(path=screenshot_path)
+                await browser.close()
+                return True, "✅ Form berhasil diisi otomatis, Bos!", screenshot_path
+
+            await browser.close()
+            return False, "Action tidak dikenal.", ""
+
+    except Exception as e:
+        print(f"🚨 [FRIDAY BROWSER ERROR]: {e}")
+        return False, f"🚨 Error otomatisasi web: {e}", ""
+
 # ==========================================
 # FASTAPI SERVER ENGINE + SMART RESPONSE MODE
 # ==========================================
@@ -1124,6 +1172,55 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     elif data == "btn_main_menu":
         await menu_command_handler(update, context)
 
+async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /web <url> [action: snap/text]"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses browser ditutup.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "🌐 *PROJECT FRIDAY BROWSER AUTOMATION*\n\n"
+            "Format Perintah:\n"
+            "• `/web <url>` - Mengambil screenshot full-page halaman web\n"
+            "• `/web <url> text` - Ekstraksi seluruh teks tersembunyi/rendered dari web",
+            parse_mode="Markdown"
+        )
+        return
+
+    target_url = context.args[0]
+    if not target_url.startswith("http"):
+        target_url = "https://" + target_url
+
+    action_type = "text" if len(context.args) > 1 and context.args[1].lower() == "text" else "screenshot"
+
+    await update.message.reply_text(f"🌐 *FRIDAY Agent meluncur ke:* `{target_url}`...")
+
+    def run_async_browser():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        success, message, file_path = loop.run_until_complete(
+            execute_browser_automation(target_url, action=action_type)
+        )
+        loop.close()
+
+        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        
+        if success and file_path and os.path.exists(file_path):
+            # Kirim foto screenshot ke Telegram
+            photo_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            with open(file_path, 'rb') as photo:
+                requests.post(photo_url, data={"chat_id": ALLOWED_CHAT_ID, "caption": message}, files={"photo": photo})
+            os.remove(file_path)
+        else:
+            payload = {"chat_id": ALLOWED_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+            requests.post(url_api, json=payload)
+
+    threading.Thread(target=run_async_browser, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -1153,6 +1250,7 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("journal", journal_command_handler))
             app.add_handler(CommandHandler("testbug", testbug_command_handler))
             app.add_handler(CommandHandler("git", git_command_handler))
+            app.add_handler(CommandHandler("web", web_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
