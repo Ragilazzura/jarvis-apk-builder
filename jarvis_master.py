@@ -11,6 +11,8 @@ import psutil
 import html
 import threading
 import time
+import io
+from PIL import Image
 from bs4 import BeautifulSoup
 import edge_tts
 from google import genai
@@ -36,7 +38,6 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
 
-# Model Utama Gemini
 MODEL_NAME = "gemini-3.6-flash"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
@@ -137,25 +138,43 @@ def get_all_memories() -> str:
     except Exception as e: 
         return f"Error DB: {e}"
 
-def save_memory(category: str, content: str) -> str:
+# ==========================================
+# WEB SCRAPER HELPER
+# ==========================================
+def scrape_web_page(url: str) -> str:
+    """Membaca isi konten dari URL web"""
     try:
-        conn = sqlite3.connect(MEMORY_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO long_term_memory (category, content) VALUES (?, ?)", (category, content))
-        conn.commit()
-        conn.close()
-        return "Memori berhasil disimpan!"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            for element in soup(["script", "style", "nav", "footer", "header"]):
+                element.extract()
+            text = soup.get_text(separator=' ')
+            clean_lines = [line.strip() for line in text.splitlines() if line.strip()]
+            clean_text = ' '.join(clean_lines)
+            return clean_text[:4000]
+        return f"Gagal mengambil halaman web (HTTP Status {resp.status_code})"
     except Exception as e:
-        return f"Gagal menyimpan memori: {e}"
+        return f"Error scraping web: {e}"
 
 # ==========================================
-# OTAK UTAMA JARVIS
+# OTAK UTAMA JARVIS & MULTIMODAL VISION
 # ==========================================
 def ask_jarvis(user_msg: str) -> str:
     now = datetime.datetime.now()
     time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
     memories = get_all_memories()
     vector_context = search_vector_db(user_msg)
+
+    # Otomatis deteksi jika ada URL di dalam pesan
+    urls = re.findall(r'https?://[^\s]+', user_msg)
+    web_context = ""
+    if urls:
+        target_url = urls[0]
+        print(f"🌐 Scraping URL: {target_url}")
+        scraped_content = scrape_web_page(target_url)
+        web_context = f"\n[HASIL BACAAN WEB DARI URL {target_url}]:\n{scraped_content}\n"
 
     system_prompt = f"""
 {JARVIS_PERSONA}
@@ -166,6 +185,7 @@ Hari & Tanggal Sekarang: {time_context}
 [MEMORI TERSEMPAN]:
 {memories}
 {vector_context}
+{web_context}
 
 Pesan Pengguna: {user_msg}
 """
@@ -200,7 +220,6 @@ Pesan Pengguna: {user_msg}
                     model=model_name,
                     contents=system_prompt
                 )
-                print(f"✅ Berhasil merespons (Tanpa Search) menggunakan model: {model_name}")
                 clean_text = response.text
                 clean_text = re.sub(r'#+\s*', '', clean_text)
                 clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
@@ -213,8 +232,36 @@ Pesan Pengguna: {user_msg}
 
     return "Maaf Bos, server Google sedang membatasi kuota API di wilayah ini. Mohon tunggu 30 detik ya! ⏳"
 
+def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
+    """Fungsi analisis gambar & screenshot (Multimodal Vision)"""
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        prompt = user_prompt if user_prompt else "Analisis foto/screenshot ini dan berikan penjelasan atau solusi secara detail, Bos."
+        system_prompt = f"{JARVIS_PERSONA}\n\nInstruksi Analisis Gambar: {prompt}"
+
+        MODEL_CANDIDATES = ["gemini-3.6-flash", "gemini-3.0", "gemini-3.5-flash"]
+        
+        for model_name in MODEL_CANDIDATES:
+            try:
+                print(f"👁️ Menganalisis gambar menggunakan model: {model_name}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[image, system_prompt]
+                )
+                clean_text = response.text
+                clean_text = re.sub(r'#+\s*', '', clean_text)
+                clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
+                clean_text = clean_text.replace('**', '').replace('*', '')
+                return clean_text
+            except Exception as e:
+                print(f"❌ Vision Error {model_name}: {e}")
+                continue
+        return "Maaf Bos, gagal menganalisis foto tersebut. Coba kirim ulang ya!"
+    except Exception as e:
+        return f"🚨 Error membaca gambar: {e}"
+
 # ==========================================
-# VOICE ENGINE (EDGE-TTS)
+# VOICE & CODE AGENT ENGINES
 # ==========================================
 async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
     try:
@@ -226,9 +273,6 @@ async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg
         print(f"[!] Voice generation error: {e}")
         return ""
 
-# ==========================================
-# AUTONOMOUS CODE AGENT ENGINE
-# ==========================================
 def test_code_execution(file_path):
     try:
         result = subprocess.run(
@@ -344,8 +388,38 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_text = ask_jarvis(user_text)
     await safe_reply(update, reply_text)
 
+async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler foto & screenshot di Telegram"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    await update.message.reply_text("👁️ Jarvis sedang menganalisis foto/screenshot...")
+    photo_file = await update.message.photo[-1].get_file()
+    image_bytes = await photo_file.download_as_bytearray()
+    
+    caption = update.message.caption or ""
+    reply_text = ask_jarvis_with_image(bytes(image_bytes), caption)
+    await safe_reply(update, reply_text)
+
+async def status_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /status untuk monitor RAM/CPU server"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    cpu_usage = psutil.cpu_percent()
+    ram_usage = psutil.virtual_memory().percent
+    
+    status_msg = f"""
+📊 JARVIS SERVER SYSTEM HEALTH:
+• CPU Usage: {cpu_usage}%
+• RAM Usage: {ram_usage}%
+• Engine Status: ONLINE 100%
+• Memory Engine: SQLite & ChromaDB Active
+• Server Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} WIB
+"""
+    await update.message.reply_text(status_msg)
+
 async def voice_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /voice <pesan>"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -361,7 +435,6 @@ async def voice_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await safe_reply(update, reply_text)
 
 async def code_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /code <instruksi>"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -380,7 +453,6 @@ async def code_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_document(document=doc, filename=file_path)
 
 async def pdf_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler upload dokumen PDF"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -407,8 +479,10 @@ def run_telegram_bot():
             # Register Command Handlers
             app.add_handler(CommandHandler("voice", voice_command_handler))
             app.add_handler(CommandHandler("code", code_command_handler))
+            app.add_handler(CommandHandler("status", status_command_handler))
             
             # Register Message Handlers
+            app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
             
