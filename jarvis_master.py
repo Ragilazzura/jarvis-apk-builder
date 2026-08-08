@@ -516,24 +516,30 @@ def execute_terminal_command(command_str: str) -> str:
     except Exception as e:
         return f"🚨 *Execution Error:* {e}"
 
+# ==========================================
+# PROJECT VERONICA: LIVE BUG HUNTER ENGINE
+# ==========================================
 def veronica_auto_fix_bug(error_traceback: str):
     """Menganalisis error crash secara otomatis dan mengirimkan patch perbaikannya ke Bos"""
     print("🛡️ [VERONICA] Fatal Error terdeteksi! Menganalisis penyebab crash...")
     
     prompt = f"""
-Kamu adalah VERONICA, Sub-Agent Bug Hunter & Auto-Fixer milik Bos.
-Telah terjadi crash/error pada sistem server dengan stacktrace berikut:
-Tugasmu:
-1. Jelaskan secara singkat penyebab utama error tersebut dalam bahasa yang mudah dipahami.
-2. Berikan potongan kode perbaikannya (Patch Code) yang tepat.
-3. Berikan saran pencegahan agar error serupa tidak terulang.
+[VERONICA PROTOCOL: SYSTEM CRASH ANALYSIS]
+Sistem telah mengalami fatal error. Berikut adalah DATA STACKTRACE ERROR RESMI:
 
-Tulis dengan gaya bahasa Jarvis yang sigap, tenang, dan panggil "Bos".
+--- STACKTRACE START ---
+{error_traceback}
+--- STACKTRACE END ---
+
+Tugasmu sebagai VERONICA:
+1. Jelaskan secara singkat dan tepat mengapa error di atas bisa terjadi.
+2. Berikan potongan kode perbaikannya (Patch Code) yang siap dipasang.
+3. Berikan saran pencegahan singkat.
+4. JANGAN meminta data tambahan lagi. Langsung sajikan analisis dan Patch Code sekarang.
 """
     fix_suggestion = ask_jarvis(prompt)
     
-    # Kirim Alert & Patch Code langsung ke Telegram Bos
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
         "text": f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
@@ -926,25 +932,11 @@ async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*")
     
-    # Sengaja buat error pembagian nol & tangkap traceback aslinya
     try:
         simulated_crash = 100 / 0
     except Exception as e:
         error_msg = traceback.format_exc()
-        
-        # Kirim prompt eksplisit agar Gemini langsung menganalisis tanpa bertanya balik
-        explicit_veronica_prompt = f"""
-[PERINTAH KELUARAN SISTEM - UTAMAKAN RESPON LANGSUNG]
-Telah terjadi crash nyata pada aplikasi dengan stacktrace berikut:
-
-{error_msg}
-
-Tugasmu sebagai VERONICA:
-1. Jelaskan mengapa pembagian nol (ZeroDivisionError) ini terjadi.
-2. Berikan kode perbaikannya menggunakan try-except atau validasi penyebut != 0.
-3. Tulis dengan gaya sigap khas VERONICA. JANGAN bertanya balik, langsung berikan analisis dan solusinya sekarang.
-"""
-        threading.Thread(target=veronica_auto_fix_bug, args=(explicit_veronica_prompt,), daemon=True).start()
+        threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
 def run_telegram_bot():
     while True:
