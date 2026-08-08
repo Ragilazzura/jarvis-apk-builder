@@ -16,6 +16,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import networkx as nx
+import sys
+import traceback
 from PIL import Image
 from bs4 import BeautifulSoup
 import edge_tts
@@ -30,6 +32,8 @@ from duckduckgo_search import DDGS
 # --- IMPORT FASTAPI & CORSMiddleware ---
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
@@ -512,6 +516,44 @@ def execute_terminal_command(command_str: str) -> str:
     except Exception as e:
         return f"🚨 *Execution Error:* {e}"
 
+def veronica_auto_fix_bug(error_traceback: str):
+    """Menganalisis error crash secara otomatis dan mengirimkan patch perbaikannya ke Bos"""
+    print("🛡️ [VERONICA] Fatal Error terdeteksi! Menganalisis penyebab crash...")
+    
+    prompt = f"""
+Kamu adalah VERONICA, Sub-Agent Bug Hunter & Auto-Fixer milik Bos.
+Telah terjadi crash/error pada sistem server dengan stacktrace berikut:
+Tugasmu:
+1. Jelaskan secara singkat penyebab utama error tersebut dalam bahasa yang mudah dipahami.
+2. Berikan potongan kode perbaikannya (Patch Code) yang tepat.
+3. Berikan saran pencegahan agar error serupa tidak terulang.
+
+Tulis dengan gaya bahasa Jarvis yang sigap, tenang, dan panggil "Bos".
+"""
+    fix_suggestion = ask_jarvis(prompt)
+    
+    # Kirim Alert & Patch Code langsung ke Telegram Bos
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim Veronica alert: {e}")
+
+def veronica_global_exception_handler(exctype, value, tb):
+    """Global exception hook untuk menangkap crash di Python"""
+    error_msg = "".join(traceback.format_exception(exctype, value, tb))
+    print(f"🚨 [CRASH DETECTED]:\n{error_msg}")
+    
+    # Trigger Veronica untuk analisa & bikinkan fix di background
+    threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+
+# Pasang Hook Global Exception
+sys.excepthook = veronica_global_exception_handler
+
 # ==========================================
 # FASTAPI SERVER ENGINE + IOT WEBHOOK BRIDGE
 # ==========================================
@@ -556,6 +598,30 @@ async def iot_control_endpoint(request: IoTCommandRequest):
         "executed_action": request.action,
         "timestamp": str(datetime.datetime.now())
     }
+
+@web_app.exception_handler(Exception)
+async def global_fastapi_exception_handler(request: Request, exc: Exception):
+    """Menangkap error HTTP 500 di FastAPI dan memicu VERONICA"""
+    error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
+    
+    # Jalankan Veronica Auto-Fixer
+    threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+    
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
+    )@web_app.exception_handler(Exception)
+async def global_fastapi_exception_handler(request: Request, exc: Exception):
+    """Menangkap error HTTP 500 di FastAPI dan memicu VERONICA"""
+    error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
+    
+    # Jalankan Veronica Auto-Fixer
+    threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+    
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
+    )
 
 def run_fastapi():
     port = int(os.getenv("PORT", 8080))
@@ -853,6 +919,20 @@ async def journal_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     threading.Thread(target=run_async_journal, daemon=True).start()
 
+async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Simulasi error untuk menguji respons VERONICA Auto-Fixer"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    await update.message.reply_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*")
+    
+    # Sengaja buat error pembagian nol
+    try:
+        result = 100 / 0
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -878,6 +958,7 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("research", research_command_handler))
             app.add_handler(CommandHandler("cmd", cmd_command_handler))
             app.add_handler(CommandHandler("journal", journal_command_handler))
+            app.add_handler(CommandHandler("testbug", testbug_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
