@@ -500,23 +500,6 @@ def execute_git_workflow(action: str, commit_msg: str = "") -> str:
         return f"🚨 *EXECUTION ERROR:* {e}"
 
 # ==========================================
-# PROACTIVE SCHEDULER
-# ==========================================
-def daily_briefing_job():
-    if IS_LOCKDOWN: return
-    briefing_text = ask_jarvis("Berikan briefing pagi singkat dan motivasi untuk Bos memulai hari.")
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": ALLOWED_CHAT_ID, "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"}
-    try: requests.post(url, json=payload)
-    except: pass
-
-scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
-scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
-scheduler.add_job(generate_daily_journal_job, 'cron', hour=23, minute=59)
-scheduler.add_job(ultron_sentinel_ping_job, 'interval', minutes=15)
-scheduler.start()
-
-# ==========================================
 # PROJECT E.D.I.T.H.: TERMINAL COMMANDER ENGINE
 # ==========================================
 def execute_terminal_command(command_str: str) -> str:
@@ -688,6 +671,23 @@ def ultron_sentinel_ping_job():
             requests.post(url_api, json=payload)
         except Exception as e:
             print(f"[!] Gagal kirim Sentinel Alarm: {e}")
+
+# ==========================================
+# PROACTIVE SCHEDULER
+# ==========================================
+def daily_briefing_job():
+    if IS_LOCKDOWN: return
+    briefing_text = ask_jarvis("Berikan briefing pagi singkat dan motivasi untuk Bos memulai hari.")
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": ALLOWED_CHAT_ID, "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"}
+    try: requests.post(url, json=payload)
+    except: pass
+
+scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
+scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
+scheduler.add_job(generate_daily_journal_job, 'cron', hour=23, minute=59)
+scheduler.add_job(ultron_sentinel_ping_job, 'interval', minutes=15)
+scheduler.start()
 
 # ==========================================
 # FASTAPI SERVER ENGINE + SMART RESPONSE MODE
