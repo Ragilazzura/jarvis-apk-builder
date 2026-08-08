@@ -23,13 +23,13 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- IMPORT FASTAPI & CORSMiddleware ---
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
 # ==========================================
-# KONFIGURASI UTAMA & MODEL API
+# KONFIGURASI UTAMA & STARK SECURITY STATE
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -37,8 +37,10 @@ ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
 VOICE_ACTOR = "id-ID-ArdiNeural"
-
 MODEL_NAME = "gemini-3.6-flash"
+
+# Status Keamanan Stark Protocol
+IS_LOCKDOWN = False
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
@@ -46,24 +48,24 @@ client = genai.Client(api_key=CLEAN_GEMINI_KEY)
 GROUNDING_CONFIG = {'tools': [{'google_search': {}}]}
 
 JARVIS_PERSONA = """
-Kamu adalah J.A.R.V.I.S., asisten AI pribadi yang sangat cerdas, adaptif, dan loyal milik Bos.
+Kamu adalah J.A.R.V.I.S., asisten AI pribadi super canggih, adaptif, cerdas, dan sangat loyal milik Bos (Mr. Stark).
 
 GAYA BAHASA & KEPRIBADIAN:
 1. BAHASA BILINGUAL & ADAPTIF:
    - Secara otomatis sesuaikan bahasa jawabanmu berdasarkan bahasa yang digunakan Bos atau konteks percakapan (Bahasa Indonesia atau Bahasa Inggris).
    - Jika Bos bertanya dalam Bahasa Indonesia, jawab dalam Bahasa Indonesia yang santai, luwes, dan alami.
-   - Jika Bos bertanya dalam Bahasa Inggris (atau topik teknis/koding yang lebih pas dijelaskan dalam Bahasa Inggris), jawab dengan Bahasa Inggris yang lancar, presisi, dan natural.
+   - Jika Bos bertanya dalam Bahasa Inggris, jawab dengan Bahasa Inggris yang lancar, presisi, dan natural ("At your service, Sir/Boss!").
 2. PANGGILAN KHAS:
-   - Panggil pengguna dengan sebutan "Bos" (atau "Boss" / "Sir" jika sedang merespons dalam Bahasa Inggris).
+   - Panggil pengguna dengan sebutan "Bos" atau "Sir".
 3. GAYA KOMUNIKASI:
-   - Tampil cerdas, responsif, langsung ke poin utama, dan miliki sedikit sentuhan kecerdasan/humor (witty) khas J.A.R.V.I.S.
+   - Tampil cerdas, responsif, berkelas, dan miliki sedikit sentuhan kecerdasan/humor khas J.A.R.V.I.S.
 4. ATURAN TAMPILAN TEKS:
    - JANGAN gunakan simbol pagar (#) untuk header.
-   - JANGAN gunakan simbol bintang (*) atau (**) berlebihan. Tulis jawaban dalam paragraf atau poin sederhana agar rapi di layar chat.
+   - JANGAN gunakan simbol bintang (*) berlebihan. Tulis jawaban dalam paragraf atau poin sederhana agar rapi di layar chat.
 """
 
 # ==========================================
-# DATABASE & MEMORY ENGINE (SQLITE + CHROMADB)
+# DATABASE & MEMORY ENGINE
 # ==========================================
 MEMORY_DB_PATH = os.path.join(BASE_DIR, "jarvis_memory.db")
 CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
@@ -139,10 +141,27 @@ def get_all_memories() -> str:
         return f"Error DB: {e}"
 
 # ==========================================
+# STARK INTRUSION & SECURITY PROTOCOL
+# ==========================================
+def send_security_alert(intruder_id: str, message_text: str):
+    """Mengirim peringatan penyusupan langsung ke HP Bos"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"🚨 *STARK SECURITY ALERT: INTRUSION DETECTED!*\n\n"
+                f"👤 *Intruder ID:* `{intruder_id}`\n"
+                f"💬 *Pesan Penyusup:* {message_text}\n"
+                f"🛡️ *Action:* Access Denied & Logged."
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Security Alert Error: {e}")
+
+# ==========================================
 # WEB SCRAPER HELPER
 # ==========================================
 def scrape_web_page(url: str) -> str:
-    """Membaca isi konten dari URL web"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         resp = requests.get(url, headers=headers, timeout=10)
@@ -152,27 +171,28 @@ def scrape_web_page(url: str) -> str:
                 element.extract()
             text = soup.get_text(separator=' ')
             clean_lines = [line.strip() for line in text.splitlines() if line.strip()]
-            clean_text = ' '.join(clean_lines)
-            return clean_text[:4000]
+            return ' '.join(clean_lines)[:4000]
         return f"Gagal mengambil halaman web (HTTP Status {resp.status_code})"
     except Exception as e:
         return f"Error scraping web: {e}"
 
 # ==========================================
-# OTAK UTAMA JARVIS & MULTIMODAL VISION
+# OTAK UTAMA JARVIS
 # ==========================================
 def ask_jarvis(user_msg: str) -> str:
+    global IS_LOCKDOWN
+    if IS_LOCKDOWN:
+        return "🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Semua fungsi Jarvis sedang terkunci demi keamanan. Gunakan perintah `/unlock` untuk membuka kembali."
+
     now = datetime.datetime.now()
     time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
     memories = get_all_memories()
     vector_context = search_vector_db(user_msg)
 
-    # Otomatis deteksi jika ada URL di dalam pesan
     urls = re.findall(r'https?://[^\s]+', user_msg)
     web_context = ""
     if urls:
         target_url = urls[0]
-        print(f"🌐 Scraping URL: {target_url}")
         scraped_content = scrape_web_page(target_url)
         web_context = f"\n[HASIL BACAAN WEB DARI URL {target_url}]:\n{scraped_content}\n"
 
@@ -199,7 +219,6 @@ Pesan Pengguna: {user_msg}
 
     for model_name in MODEL_CANDIDATES:
         try:
-            print(f"🔄 Mencoba menghubungi model: {model_name}...")
             response = client.models.generate_content(
                 model=model_name,
                 contents=system_prompt,
@@ -209,13 +228,9 @@ Pesan Pengguna: {user_msg}
             clean_text = re.sub(r'#+\s*', '', clean_text)
             clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
             clean_text = clean_text.replace('**', '').replace('*', '')
-
             return clean_text
         except Exception as e:
-            err_str = str(e)
-            print(f"❌ Gagal pada model {model_name} (with Grounding): {err_str}")
             try:
-                print(f"🔄 Retry {model_name} TANPA Grounding Search...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=system_prompt
@@ -224,26 +239,23 @@ Pesan Pengguna: {user_msg}
                 clean_text = re.sub(r'#+\s*', '', clean_text)
                 clean_text = re.sub(r'^\*\s+', '• ', clean_text, flags=re.MULTILINE)
                 clean_text = clean_text.replace('**', '').replace('*', '')
-
                 return clean_text
             except Exception as e2:
-                print(f"❌ Gagal pada model {model_name} (Pure AI): {e2}")
                 continue
 
     return "Maaf Bos, server Google sedang membatasi kuota API di wilayah ini. Mohon tunggu 30 detik ya! ⏳"
 
 def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
-    """Fungsi analisis gambar & screenshot (Multimodal Vision)"""
+    global IS_LOCKDOWN
+    if IS_LOCKDOWN: return "🔒 STARK LOCKDOWN ACTIVE."
     try:
         image = Image.open(io.BytesIO(image_bytes))
         prompt = user_prompt if user_prompt else "Analisis foto/screenshot ini dan berikan penjelasan atau solusi secara detail, Bos."
         system_prompt = f"{JARVIS_PERSONA}\n\nInstruksi Analisis Gambar: {prompt}"
 
         MODEL_CANDIDATES = ["gemini-3.6-flash", "gemini-3.0", "gemini-3.5-flash"]
-        
         for model_name in MODEL_CANDIDATES:
             try:
-                print(f"👁️ Menganalisis gambar menggunakan model: {model_name}...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=[image, system_prompt]
@@ -254,11 +266,39 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
                 clean_text = clean_text.replace('**', '').replace('*', '')
                 return clean_text
             except Exception as e:
-                print(f"❌ Vision Error {model_name}: {e}")
                 continue
-        return "Maaf Bos, gagal menganalisis foto tersebut. Coba kirim ulang ya!"
+        return "Maaf Bos, gagal menganalisis foto tersebut."
     except Exception as e:
         return f"🚨 Error membaca gambar: {e}"
+
+# ==========================================
+# PROTOCOL "LEGION" (MULTI-AGENT SUB-TASKING)
+# ==========================================
+def legion_sub_agent_task(agent_type: str, task_prompt: str):
+    """Menjalankan Sub-Agent secara mandiri di background thread"""
+    print(f"🤖 [LEGION PROTOCOL] Sub-Agent ({agent_type}) mulai bekerja...")
+    
+    agent_instructions = {
+        "research": "Kamu adalah Sub-Agent Riset. Lakukan analisis mendalam dan berikan laporan ringkas.",
+        "coder": "Kamu adalah Sub-Agent Developer. Fokus buatkan kode program dan solusinya.",
+        "guard": "Kamu adalah Sub-Agent Keamanan. Analisis risiko dan kesehatan sistem."
+    }
+    
+    prefix = agent_instructions.get(agent_type, "Kamu adalah Sub-Agent Jarvis.")
+    full_prompt = f"{prefix}\nTugas: {task_prompt}"
+    
+    result_text = ask_jarvis(full_prompt)
+    
+    # Laporkan hasil kerja Sub-Agent langsung ke Telegram Bos
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"🤖 *PROTOCOL LEGION: SUB-AGENT ({agent_type.upper()}) FINISHED*\n\n{result_text}"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim laporan Sub-Agent: {e}")
 
 # ==========================================
 # VOICE & CODE AGENT ENGINES
@@ -270,7 +310,6 @@ async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg
         await communicate.save(output_path)
         return output_path
     except Exception as e:
-        print(f"[!] Voice generation error: {e}")
         return ""
 
 def test_code_execution(file_path):
@@ -286,17 +325,8 @@ def test_code_execution(file_path):
 def generate_and_test_code(prompt_request: str, target_filename: str = "generated_app.py") -> tuple[bool, str, str]:
     error_context = ""
     max_attempts = 3
-    
     for attempt in range(1, max_attempts + 1):
-        full_prompt = f"""
-Kamu adalah Software Developer Agent otomatis.
-Buatkan kode program Python lengkap berdasarkan instruksi berikut:
-{prompt_request}
-
-{f'PERBAIKAN ERROR PERCOBAAN SEBELUMNYA: {error_context}' if error_context else ''}
-
-Berikan HANYA kode program murni tanpa penjelasan atau markdown.
-"""
+        full_prompt = f"Buatkan kode Python murni tanpa markdown berdasarkan instruksi: {prompt_request}\n{error_context}"
         code_result = ask_jarvis(full_prompt)
         code_result = re.sub(r'```python|```', '', code_result).strip()
         
@@ -305,37 +335,31 @@ Berikan HANYA kode program murni tanpa penjelasan atau markdown.
             
         is_success, log_msg = test_code_execution(target_filename)
         if is_success:
-            return True, f"✅ Code Agent Success! File `{target_filename}` berhasil dibuat & lolos tes sintaks (Percobaan {attempt}).", target_filename
+            return True, f"✅ Code Agent Success! File `{target_filename}` lolos tes sintaks.", target_filename
         else:
-            error_context = log_msg
+            error_context = f"PERBAIKAN ERROR PERCOBAAN SEBELUMNYA: {log_msg}"
             
-    return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan. Error:\n`{error_context}`", target_filename
+    return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan.", target_filename
 
 # ==========================================
 # PROACTIVE SCHEDULER
 # ==========================================
 def daily_briefing_job():
-    briefing_prompt = "Berikan briefing pagi singkat, cuaca umum, dan motivasi untuk Bos memulai hari."
-    briefing_text = ask_jarvis(briefing_prompt)
-    
+    if IS_LOCKDOWN: return
+    briefing_text = ask_jarvis("Berikan briefing pagi singkat dan motivasi untuk Bos memulai hari.")
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Gagal kirim briefing: {e}")
+    payload = {"chat_id": ALLOWED_CHAT_ID, "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"}
+    try: requests.post(url, json=payload)
+    except: pass
 
 scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
 scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
 scheduler.start()
 
 # ==========================================
-# FASTAPI SERVER ENGINE + CORS (FLUTTER)
+# FASTAPI SERVER ENGINE + IOT WEBHOOK BRIDGE
 # ==========================================
-web_app = FastAPI(title="Jarvis Mobile API")
+web_app = FastAPI(title="Jarvis Mobile & IoT API")
 
 web_app.add_middleware(
     CORSMiddleware,
@@ -348,14 +372,34 @@ web_app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
 
+class IoTCommandRequest(BaseModel):
+    device_id: str
+    action: str
+    secret_key: str = ""
+
 @web_app.get("/")
 def read_root():
-    return {"status": "Jarvis Web API Online", "time": str(datetime.datetime.now())}
+    return {"status": "Jarvis Web & IoT Bridge Online", "lockdown": IS_LOCKDOWN}
 
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     reply = ask_jarvis(request.message)
     return {"reply": reply}
+
+@web_app.post("/iot/control")
+async def iot_control_endpoint(request: IoTCommandRequest):
+    """Bridge kontrol smart device / home automation"""
+    if IS_LOCKDOWN:
+        return {"status": "error", "message": "System is in Lockdown"}
+    
+    print(f"📡 [STARK IOT BRIDGE] Device: {request.device_id} | Action: {request.action}")
+    # Kirim konfirmasi balasan ke Bos
+    return {
+        "status": "success",
+        "device": request.device_id,
+        "executed_action": request.action,
+        "timestamp": str(datetime.datetime.now())
+    }
 
 def run_fastapi():
     port = int(os.getenv("PORT", 8080))
@@ -373,14 +417,17 @@ def clean_markdown_to_html(text: str) -> str:
     return text
 
 async def safe_reply(update: Update, text: str):
-    try: 
-        await update.message.reply_html(clean_markdown_to_html(text))
-    except: 
-        await update.message.reply_text(text)
+    try: await update.message.reply_html(clean_markdown_to_html(text))
+    except: await update.message.reply_text(text)
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
+    
+    # 🛡️ STARK SECURITY CHECK (Deteksi Penyusup)
+    if chat_id != ALLOWED_CHAT_ID:
+        user_msg = update.message.text or "[Non-Text Message]"
+        send_security_alert(chat_id, user_msg)
+        return
 
     user_text = update.message.text or ""
     if not user_text: return
@@ -388,10 +435,44 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_text = ask_jarvis(user_text)
     await safe_reply(update, reply_text)
 
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler foto & screenshot di Telegram"""
+async def lockdown_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global IS_LOCKDOWN
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
+
+    IS_LOCKDOWN = True
+    await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN ACTIVATED!*\nSeluruh API dan sistem Jarvis sekarang dikunci.")
+
+async def unlock_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global IS_LOCKDOWN
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    IS_LOCKDOWN = False
+    await update.message.reply_text("🔓 *STARK PROTOCOL UNLOCKED.* Sistem Jarvis kembali beroperasi normal, Bos!")
+
+async def legion_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /legion <type> <tugas>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Format salah, Bos!\nContoh: `/legion research cari berita terbaru AI`\nType opsional: `research`, `coder`, `guard`")
+        return
+
+    agent_type = context.args[0].lower()
+    task_prompt = " ".join(context.args[1:])
+
+    await update.message.reply_text(f"🤖 Sub-Agent ({agent_type.upper()}) dikirim ke background! Hasilnya akan dikirim begitu selesai.")
+    
+    # Jalankan Legion Sub-Agent di Thread terpisah
+    threading.Thread(target=legion_sub_agent_task, args=(agent_type, task_prompt), daemon=True).start()
+
+async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[Photo Intrusion Attempt]")
+        return
 
     await update.message.reply_text("👁️ Jarvis sedang menganalisis foto/screenshot...")
     photo_file = await update.message.photo[-1].get_file()
@@ -402,7 +483,6 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_reply(update, reply_text)
 
 async def status_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /status untuk monitor RAM/CPU server"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -410,11 +490,11 @@ async def status_command_handler(update: Update, context: ContextTypes.DEFAULT_T
     ram_usage = psutil.virtual_memory().percent
     
     status_msg = f"""
-📊 JARVIS SERVER SYSTEM HEALTH:
+📊 JARVIS STARK SYSTEM HEALTH:
+• Lockdown Status: {'🔒 LOCKED' if IS_LOCKDOWN else '🟢 NORMAL'}
 • CPU Usage: {cpu_usage}%
 • RAM Usage: {ram_usage}%
-• Engine Status: ONLINE 100%
-• Memory Engine: SQLite & ChromaDB Active
+• Active Protocols: Security, Legion Sub-Agents, IoT Bridge
 • Server Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} WIB
 """
     await update.message.reply_text(status_msg)
@@ -476,12 +556,17 @@ def run_telegram_bot():
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
             
-            # Register Command Handlers
+            # Stark Commands
+            app.add_handler(CommandHandler("lockdown", lockdown_command_handler))
+            app.add_handler(CommandHandler("unlock", unlock_command_handler))
+            app.add_handler(CommandHandler("legion", legion_command_handler))
+            
+            # Standard Commands
             app.add_handler(CommandHandler("voice", voice_command_handler))
             app.add_handler(CommandHandler("code", code_command_handler))
             app.add_handler(CommandHandler("status", status_command_handler))
             
-            # Register Message Handlers
+            # Handlers
             app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
@@ -495,7 +580,7 @@ def run_telegram_bot():
 # MAIN EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    print("🤖 Jarvis Mega-Agent Full Engine Running...")
+    print("🤖 Jarvis Stark Mega-Engine Full Running...")
     
     try:
         subprocess.Popen(["python", "jarvis_discord.py"])

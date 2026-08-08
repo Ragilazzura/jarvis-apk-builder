@@ -6,7 +6,7 @@ from discord.ext import commands
 from jarvis_master import (
     client, MODEL_NAME, JARVIS_PERSONA, 
     get_all_memories, search_vector_db, ask_jarvis, ask_jarvis_with_image,
-    generate_voice_response, generate_and_test_code
+    generate_voice_response, generate_and_test_code, IS_LOCKDOWN
 )
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -24,7 +24,7 @@ async def status_cmd(ctx):
     import psutil
     cpu = psutil.cpu_percent()
     ram = psutil.virtual_memory().percent
-    await ctx.send(f"📊 **JARVIS DISCORD AGENT HEALTH**\n• CPU: {cpu}%\n• RAM: {ram}%\n• Status: Online 100%")
+    await ctx.send(f"📊 **STARK DISCORD HEALTH**\n• Lockdown: {'🔒 YES' if IS_LOCKDOWN else '🟢 NO'}\n• CPU: {cpu}%\n• RAM: {ram}%")
 
 @bot.command(name="voice")
 async def voice_cmd(ctx, *, prompt: str):
@@ -61,7 +61,6 @@ async def on_message(message):
         
         async with message.channel.typing():
             try:
-                # 👁️ Jika ada lampiran gambar/foto
                 if message.attachments:
                     for att in message.attachments:
                         if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
