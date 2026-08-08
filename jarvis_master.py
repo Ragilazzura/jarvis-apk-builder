@@ -18,9 +18,10 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import sys
 import traceback
+import base64
+import edge_tts
 from PIL import Image
 from bs4 import BeautifulSoup
-import edge_tts
 from google import genai
 import chromadb
 from pypdf import PdfReader
@@ -32,10 +33,9 @@ from telegram.ext import (
 from apscheduler.schedulers.background import BackgroundScheduler
 from duckduckgo_search import DDGS
 
-# --- IMPORT FASTAPI & CORSMiddleware ---
-from fastapi import FastAPI, BackgroundTasks
+# --- FASTAPI & MIDDLEWARE IMPORTS ---
+from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
@@ -98,6 +98,16 @@ def init_memory_db():
         print(f"[!] Warning DB: {e}")
 
 init_memory_db()
+
+def save_memory(category: str, content: str):
+    try:
+        conn = sqlite3.connect(MEMORY_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO long_term_memory (category, content) VALUES (?, ?)", (category, content))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[!] Save Memory Error: {e}")
 
 def add_to_vector_db(text: str, doc_id: str, metadata: dict = None):
     try:
@@ -162,7 +172,6 @@ def generate_daily_journal_job():
     print("🧠 [T.A.C.H.I.] Mengompilasi Jurnal Harian Aktivitas Proyek Bos...")
     today_str = datetime.datetime.now().strftime("%A, %d %B %Y")
     
-    # Ambil memori terbaru dari SQLite
     recent_memories = get_all_memories()
     
     prompt = f"""
@@ -181,11 +190,9 @@ Tulis dengan gaya bahasa Jarvis yang berkelas, padat, dan panggil "Bos".
 """
     journal_result = ask_jarvis(prompt)
     
-    # Simpan jurnal ini ke SQLite & ChromaDB
     save_memory("DAILY_JOURNAL", f"[{today_str}] {journal_result[:500]}")
     add_to_vector_db(journal_result, f"journal_{int(time.time())}", {"type": "daily_journal", "date": today_str})
     
-    # Kirim Laporan Jurnal Malam ke Telegram Bos
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
@@ -331,7 +338,6 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
 # PROTOCOL "LEGION" (MULTI-AGENT SUB-TASKING)
 # ==========================================
 def legion_sub_agent_task(agent_type: str, task_prompt: str):
-    """Menjalankan Sub-Agent secara mandiri di background thread"""
     print(f"🤖 [LEGION PROTOCOL] Sub-Agent ({agent_type}) mulai bekerja...")
     
     agent_instructions = {
@@ -345,7 +351,6 @@ def legion_sub_agent_task(agent_type: str, task_prompt: str):
     
     result_text = ask_jarvis(full_prompt)
     
-    # Laporkan hasil kerja Sub-Agent langsung ke Telegram Bos
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
@@ -357,7 +362,6 @@ def legion_sub_agent_task(agent_type: str, task_prompt: str):
         print(f"[!] Gagal kirim laporan Sub-Agent: {e}")
 
 def autonomous_research(query: str, max_results: int = 4) -> str:
-    """Melakukan pencarian web mandiri dan menyusun ringkasan riset"""
     print(f"🛰️ [FRIDAY AGENT] Melakukan riset web mandiri untuk: '{query}'...")
     search_results = []
     
@@ -378,7 +382,6 @@ def autonomous_research(query: str, max_results: int = 4) -> str:
 
     raw_research_data = "\n\n".join(search_results)
     
-    # Minta Gemini merangkum hasil riset web tersebut
     prompt = f"""
 Kamu adalah FRIDAY, Sub-Agent Riset Otonom milik Bos.
 Berikut adalah data hasil pencarian web terbaru mengenai topik: "{query}"
@@ -440,7 +443,6 @@ def generate_and_test_code(prompt_request: str, target_filename: str = "generate
 # MARK-UI: DIAGRAM GENERATOR ENGINE
 # ==========================================
 def generate_system_diagram(nodes_and_edges: list, title: str = "System Architecture") -> str:
-    """Mengubah struktur node/alur menjadi gambar diagram visual"""
     try:
         G = nx.DiGraph()
         for edge in nodes_and_edges:
@@ -470,7 +472,6 @@ def generate_system_diagram(nodes_and_edges: list, title: str = "System Architec
 # PROJECT HEPHAESTUS: DEVOPS & GIT ENGINE
 # ==========================================
 def execute_git_workflow(action: str, commit_msg: str = "") -> str:
-    """Mengeksekusi workflow Git secara otomatis di repository lokal"""
     try:
         if action == "status":
             res = subprocess.run(["git", "status"], capture_output=True, text=True, check=True)
@@ -484,13 +485,8 @@ def execute_git_workflow(action: str, commit_msg: str = "") -> str:
             if not commit_msg:
                 commit_msg = f"Auto-deploy by Jarvis HEPHAESTUS - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             
-            # 1. Git Add
             subprocess.run(["git", "add", "."], capture_output=True, text=True, check=True)
-            
-            # 2. Git Commit
             commit_res = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True)
-            
-            # 3. Git Push
             push_res = subprocess.run(["git", "push"], capture_output=True, text=True, check=True)
             
             return f"🚀 *HEPHAESTUS GIT PUSH SUCCESSFUL!*\n\n*Commit Message:* `{commit_msg}`\n\n*Log Output:*\n```\n{commit_res.stdout}\n{push_res.stdout}\n```"
@@ -523,8 +519,6 @@ scheduler.start()
 # PROJECT E.D.I.T.H.: TERMINAL COMMANDER ENGINE
 # ==========================================
 def execute_terminal_command(command_str: str) -> str:
-    """Mengeksekusi perintah terminal/shell secara aman di host machine"""
-    # Blacklist perintah berbahaya demi keamanan
     blacklisted_keywords = ["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:"]
     for kw in blacklisted_keywords:
         if kw in command_str.lower():
@@ -532,13 +526,12 @@ def execute_terminal_command(command_str: str) -> str:
 
     try:
         print(f"⚡ [E.D.I.T.H.] Executing Shell Command: '{command_str}'...")
-        # Jalankan perintah via subprocess
         process = subprocess.run(
             command_str,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30 # Timeout 30 detik
+            timeout=30
         )
         
         stdout_text = process.stdout.strip()
@@ -546,7 +539,7 @@ def execute_terminal_command(command_str: str) -> str:
 
         output = ""
         if stdout_text:
-            output += f"📤 *STDOUT:*\n`{stdout_text[:3000]}`" # Limit output agar tidak spam chat
+            output += f"📤 *STDOUT:*\n`{stdout_text[:3000]}`"
         if stderr_text:
             output += f"\n⚠️ *STDERR:*\n`{stderr_text[:1000]}`"
 
@@ -560,7 +553,6 @@ def execute_terminal_command(command_str: str) -> str:
 # PROJECT VERONICA: LIVE BUG HUNTER ENGINE
 # ==========================================
 def veronica_auto_fix_bug(error_traceback: str):
-    """Menganalisis error crash secara otomatis dan mengirimkan patch perbaikannya ke Bos"""
     print("🛡️ [VERONICA] Fatal Error terdeteksi! Menganalisis penyebab crash...")
     
     prompt = f"""
@@ -579,7 +571,7 @@ Tugasmu sebagai VERONICA:
 """
     fix_suggestion = ask_jarvis(prompt)
     
-    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
         "text": f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
@@ -590,18 +582,14 @@ Tugasmu sebagai VERONICA:
         print(f"[!] Gagal kirim Veronica alert: {e}")
 
 def veronica_global_exception_handler(exctype, value, tb):
-    """Global exception hook untuk menangkap crash di Python"""
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
     print(f"🚨 [CRASH DETECTED]:\n{error_msg}")
-    
-    # Trigger Veronica untuk analisa & bikinkan fix di background
     threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
-# Pasang Hook Global Exception
 sys.excepthook = veronica_global_exception_handler
 
 # ==========================================
-# FASTAPI SERVER ENGINE + IOT & KINETIC-UI ENDPOINTS
+# FASTAPI SERVER ENGINE + SMART RESPONSE MODE
 # ==========================================
 web_app = FastAPI(title="Jarvis Mobile, IoT & KINETIC-UI API")
 
@@ -615,6 +603,7 @@ web_app.add_middleware(
 
 class ChatRequest(BaseModel):
     message: str
+    is_voice_input: bool = False
 
 class IoTCommandRequest(BaseModel):
     device_id: str
@@ -629,20 +618,53 @@ def read_root():
         "time": str(datetime.datetime.now())
     }
 
-# 🟢 ENDPOINT 1: Chat Interaktif (Flutter / Web)
+async def generate_tts_base64(text: str) -> str:
+    try:
+        clean_txt = re.sub(r'[*_`#~\[\]\(\)]', '', text)[:300]
+        communicate = edge_tts.Communicate(clean_txt, "id-ID-ArdiNeural")
+        
+        audio_bytes = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_bytes += chunk["data"]
+                
+        return base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"[!] TTS Base64 Generation Error: {e}")
+        return ""
+
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
-        return {"status": "error", "reply": "🔒 STARK LOCKDOWN ACTIVE."}
+        return {
+            "status": "error", 
+            "reply": "🔒 STARK LOCKDOWN ACTIVE.",
+            "audio_base64": ""
+        }
     
-    reply = ask_jarvis(request.message)
-    return {
-        "status": "success",
-        "reply": reply,
-        "timestamp": str(datetime.datetime.now())
-    }
+    reply_text = ask_jarvis(request.message)
+    msg_lower = request.message.lower()
 
-# 🟢 ENDPOINT 2: Real-time System Status Dashboard (KINETIC-UI)
+    voice_triggers = ["pake suara", "pakai suara", "balas suara", "pake voice", "pakai voice", "pake vn", "bicaralah"]
+    text_triggers = ["balas teks", "balas chat", "ketik aja", "tanpa suara", "tanpa voice", "gak usah suara"]
+
+    wants_voice = any(kw in msg_lower for kw in voice_triggers)
+    wants_text = any(kw in msg_lower for kw in text_triggers)
+
+    # 🧠 STRICT LOGIC:
+    if request.is_voice_input:
+        if wants_text:
+            return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
+        else:
+            audio_b64 = await generate_tts_base64(reply_text)
+            return {"status": "success", "reply": "", "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
+    else:
+        if wants_voice:
+            audio_b64 = await generate_tts_base64(reply_text)
+            return {"status": "success", "reply": "", "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
+        else:
+            return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
+
 @web_app.get("/status")
 def status_endpoint():
     return {
@@ -653,7 +675,6 @@ def status_endpoint():
         "server_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
-# 🟢 ENDPOINT 3: Riwayat Memori Percakapan (KINETIC-UI)
 @web_app.get("/history")
 def history_endpoint():
     memories = get_all_memories()
@@ -662,10 +683,8 @@ def history_endpoint():
         "memories": memories
     }
 
-# 🟢 ENDPOINT 4: Smart Home / IoT Control Bridge
 @web_app.post("/iot/control")
 async def iot_control_endpoint(request: IoTCommandRequest):
-    """Bridge kontrol smart device / home automation"""
     if IS_LOCKDOWN:
         return {"status": "error", "message": "System is in Lockdown"}
     
@@ -677,15 +696,10 @@ async def iot_control_endpoint(request: IoTCommandRequest):
         "timestamp": str(datetime.datetime.now())
     }
 
-# 🛡️ GLOBAL EXCEPTION HANDLER (VERONICA AUTO-FIXER)
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
-    """Menangkap error HTTP 500 di FastAPI dan memicu VERONICA"""
     error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
-    
-    # Jalankan Veronica Auto-Fixer di background thread
     threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
-    
     return JSONResponse(
         status_code=500,
         content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
@@ -712,8 +726,6 @@ async def safe_reply(update: Update, text: str):
 
 async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    
-    # 🛡️ STARK SECURITY CHECK (Deteksi Penyusup)
     if chat_id != ALLOWED_CHAT_ID:
         user_msg = update.message.text or "[Non-Text Message]"
         send_security_alert(chat_id, user_msg)
@@ -722,8 +734,63 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text or ""
     if not user_text: return
     
-    reply_text = ask_jarvis(user_text)
-    await safe_reply(update, reply_text)
+    voice_triggers = ["pake suara", "pakai suara", "balas suara", "pake voice", "pakai voice", "pake vn"]
+    if any(kw in user_text.lower() for kw in voice_triggers):
+        reply = ask_jarvis(user_text)
+        audio_path = await generate_voice_response(reply)
+        if audio_path and os.path.exists(audio_path):
+            with open(audio_path, 'rb') as v_out:
+                await update.message.reply_voice(voice=v_out)
+            os.remove(audio_path)
+        else:
+            await safe_reply(update, reply)
+    else:
+        reply_text = ask_jarvis(user_text)
+        await safe_reply(update, reply_text)
+
+async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler pesan suara (Voice Note) otomatis dari Bos"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[Voice Note Intrusion Attempt]")
+        return
+
+    voice_file = await update.message.voice.get_file()
+    ogg_path = f"user_voice_{int(time.time())}.ogg"
+    await voice_file.download_to_drive(ogg_path)
+
+    try:
+        with open(ogg_path, "rb") as f:
+            audio_bytes = f.read()
+
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[
+                {"mime_type": "audio/ogg", "data": audio_bytes},
+                f"{JARVIS_PERSONA}\n\nDengarkan suara Bos di atas, pahami pesannya, lalu berikan jawaban yang singkat, padat, dan luwes."
+            ]
+        )
+        transcribed_reply = response.text
+        clean_reply = re.sub(r'#+\s*', '', transcribed_reply).replace('**', '').replace('*', '')
+
+        text_triggers = ["balas teks", "balas chat", "ketik aja", "tanpa suara", "tanpa voice"]
+        if any(kw in clean_reply.lower() for kw in text_triggers):
+            await safe_reply(update, clean_reply)
+        else:
+            voice_reply_path = await generate_voice_response(clean_reply)
+            if voice_reply_path and os.path.exists(voice_reply_path):
+                with open(voice_reply_path, 'rb') as v_out:
+                    await update.message.reply_voice(voice=v_out)
+                os.remove(voice_reply_path)
+            else:
+                await safe_reply(update, clean_reply)
+
+    except Exception as e:
+        print(f"❌ Error Voice Processing: {e}")
+        await update.message.reply_text(f"🚨 Maaf Bos, gagal memproses suara: {e}")
+    finally:
+        if os.path.exists(ogg_path):
+            os.remove(ogg_path)
 
 async def lockdown_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global IS_LOCKDOWN
@@ -742,27 +809,22 @@ async def unlock_command_handler(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text("🔓 *STARK PROTOCOL UNLOCKED.* Sistem Jarvis kembali beroperasi normal, Bos!")
 
 async def legion_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /legion <type> <tugas>"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
     if len(context.args) < 2:
-        await update.message.reply_text("Format salah, Bos!\nContoh: `/legion research cari berita terbaru AI`\nType opsional: `research`, `coder`, `guard`")
+        await update.message.reply_text("Format salah, Bos!\nContoh: `/legion research cari berita terbaru AI`")
         return
 
     agent_type = context.args[0].lower()
     task_prompt = " ".join(context.args[1:])
 
-    await update.message.reply_text(f"🤖 Sub-Agent ({agent_type.upper()}) dikirim ke background! Hasilnya akan dikirim begitu selesai.")
-    
-    # Jalankan Legion Sub-Agent di Thread terpisah
+    await update.message.reply_text(f"🤖 Sub-Agent ({agent_type.upper()}) dikirim ke background!")
     threading.Thread(target=legion_sub_agent_task, args=(agent_type, task_prompt), daemon=True).start()
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[Photo Intrusion Attempt]")
-        return
+    if chat_id != ALLOWED_CHAT_ID: return
 
     await update.message.reply_text("👁️ Jarvis sedang menganalisis foto/screenshot...")
     photo_file = await update.message.photo[-1].get_file()
@@ -799,7 +861,7 @@ async def voice_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
     voice_path = await generate_voice_response(reply_text)
     if voice_path and os.path.exists(voice_path):
         with open(voice_path, 'rb') as voice_file:
-            await update.message.reply_voice(voice=voice_file, caption=f"💬 {reply_text[:100]}...")
+            await update.message.reply_voice(voice=voice_file)
         os.remove(voice_path)
     else:
         await safe_reply(update, reply_text)
@@ -809,7 +871,7 @@ async def code_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if chat_id != ALLOWED_CHAT_ID: return
 
     if not context.args:
-        await update.message.reply_text("Mohon sertakan instruksi kodingannya, Bos!\nContoh: `/code buatkan script scraper harga crypto`")
+        await update.message.reply_text("Mohon sertakan instruksi kodingannya, Bos!")
         return
 
     prompt_req = " ".join(context.args)
@@ -840,55 +902,7 @@ async def pdf_document_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
 
-async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler pesan suara (Voice Note) otomatis dari Bos"""
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[Voice Note Intrusion Attempt]")
-        return
-
-    await update.message.reply_text("🎙️ *Jarvis mendengarkan pesan suara Bos...*")
-
-    # 1. Unduh Voice Note (.ogg) dari Telegram
-    voice_file = await update.message.voice.get_file()
-    ogg_path = f"user_voice_{int(time.time())}.ogg"
-    await voice_file.download_to_drive(ogg_path)
-
-    try:
-        # 2. Kirim Audio langsung ke Otak Gemini Multimodal
-        with open(ogg_path, "rb") as f:
-            audio_bytes = f.read()
-
-        print("🎙️ Memproses audio pesan suara Bos ke Gemini...")
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=[
-                {"mime_type": "audio/ogg", "data": audio_bytes},
-                f"{JARVIS_PERSONA}\n\nDengarkan suara Bos di atas, pahami pesannya, lalu berikan jawaban yang singkat, padat, dan luwes."
-            ]
-        )
-        reply_text = response.text
-        clean_reply = re.sub(r'#+\s*', '', reply_text).replace('**', '').replace('*', '')
-
-        # 3. Ubah Balasan Teks Jarvis menjadi Suara (Voice Note)
-        voice_reply_path = await generate_voice_response(clean_reply)
-
-        if voice_reply_path and os.path.exists(voice_reply_path):
-            with open(voice_reply_path, 'rb') as v_out:
-                await update.message.reply_voice(voice=v_out, caption=f"💬 {clean_reply[:150]}...")
-            os.remove(voice_reply_path)
-        else:
-            await safe_reply(update, clean_reply)
-
-    except Exception as e:
-        print(f"❌ Error Voice Processing: {e}")
-        await update.message.reply_text(f"🚨 Maaf Bos, gagal memproses suara: {e}")
-    finally:
-        if os.path.exists(ogg_path):
-            os.remove(ogg_path)
-
 async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /diagram <topik>"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -899,7 +913,6 @@ async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_
     raw_input = " ".join(context.args)
     await update.message.reply_text("🎨 Jarvis sedang menggambar diagram visual...")
 
-    # Parser sederhana alur yang dipisahkan panah '->'
     steps = [step.strip() for step in raw_input.split("->")]
     edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)] if len(steps) > 1 else []
 
@@ -911,24 +924,21 @@ async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_
             os.remove(diagram_img)
             return
 
-    await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`, contoh:\n`/diagram User -> Bot -> Gemini API`")
+    await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`.")
 
 async def research_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /research <topik>"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
     if not context.args:
-        await update.message.reply_text("Sertakan topik yang mau diriset ya, Bos!\nContoh: `/research perkembangan AI terbaru 2026`")
+        await update.message.reply_text("Sertakan topik yang mau diriset ya, Bos!")
         return
 
     topic = " ".join(context.args)
     await update.message.reply_text(f"🛰️ *FRIDAY Agent dikirim!* Sedang menjelajah web untuk meriset `{topic}`...")
 
-    # Jalankan riset di background thread agar bot tidak freeze
     def run_async_research():
         report = autonomous_research(topic)
-        # Kirim hasil laporan riset ke Telegram Bos
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": ALLOWED_CHAT_ID,
@@ -942,24 +952,20 @@ async def research_command_handler(update: Update, context: ContextTypes.DEFAULT
     threading.Thread(target=run_async_research, daemon=True).start()
 
 async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /cmd <shell command>"""
     chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[E.D.I.T.H. Terminal Intrusion Attempt]")
-        return
+    if chat_id != ALLOWED_CHAT_ID: return
 
     if IS_LOCKDOWN:
         await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses terminal ditutup.")
         return
 
     if not context.args:
-        await update.message.reply_text("Sertakan perintah shell yang mau dijalankan ya, Bos!\nContoh:\n`/cmd dir` (di Windows)\n`/cmd git status`\n`/cmd free -m`")
+        await update.message.reply_text("Sertakan perintah shell yang mau dijalankan ya, Bos!")
         return
 
     command_to_run = " ".join(context.args)
     await update.message.reply_text(f"⚡ *E.D.I.T.H. Executing:* `{command_to_run}`...")
 
-    # Eksekusi di thread terpisah agar bot tidak ngelag/freeze
     def run_async_cmd():
         result = execute_terminal_command(command_to_run)
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -976,36 +982,26 @@ async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     threading.Thread(target=run_async_cmd, daemon=True).start()
 
 async def journal_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /journal untuk memicu rekap jurnal T.A.C.H.I. secara instan"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
     await update.message.reply_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*")
-    
-    def run_async_journal():
-        generate_daily_journal_job()
-
-    threading.Thread(target=run_async_journal, daemon=True).start()
+    threading.Thread(target=generate_daily_journal_job, daemon=True).start()
 
 async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Simulasi error untuk menguji respons VERONICA Auto-Fixer"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
     await update.message.reply_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*")
-    
     try:
-        simulated_crash = 100 / 0
-    except Exception as e:
+        _ = 100 / 0
+    except Exception:
         error_msg = traceback.format_exc()
         threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
 async def git_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /git <action> [commit message]"""
     chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[HEPHAESTUS Git Access Attempt]")
-        return
+    if chat_id != ALLOWED_CHAT_ID: return
 
     if IS_LOCKDOWN:
         await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses Git ditutup.")
@@ -1015,9 +1011,9 @@ async def git_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             "⚒️ *PROJECT HEPHAESTUS DEVOPS ENGINE*\n\n"
             "Format perintah:\n"
-            "• `/git status` - Cek status perubahan file\n"
-            "• `/git pull` - Tarik pembaruan dari GitHub\n"
-            "• `/git push <pesan commit>` - Otomatis add, commit, & push ke Cloud",
+            "• `/git status`\n"
+            "• `/git pull`\n"
+            "• `/git push <pesan commit>`",
             parse_mode="Markdown"
         )
         return
@@ -1046,13 +1042,9 @@ async def git_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 # PROJECT STARK-OVERSEER: INTERACTIVE MENU ENGINE
 # ==========================================
 async def menu_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /menu atau /start untuk menampilkan Control Center berbasis Tombol"""
     chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[STARK-OVERSEER Menu Access Attempt]")
-        return
+    if chat_id != ALLOWED_CHAT_ID: return
 
-    # Susun Tata Letak Tombol Interaktif (Inline Keyboard)
     keyboard = [
         [
             InlineKeyboardButton("📊 System Health", callback_data="btn_status"),
@@ -1083,14 +1075,13 @@ Silakan pilih protokol yang ingin dieksekusi, Bos:
         await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler aksi saat tombol interaktif diklik oleh Bos"""
     global IS_LOCKDOWN
 
     query = update.callback_query
     chat_id = str(query.message.chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
-    await query.answer() # Beri konfirmasi klik tombol ke Telegram
+    await query.answer()
     data = query.data
 
     if data == "btn_status":
@@ -1104,12 +1095,11 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
 • Memory Engine: SQLite & ChromaDB Active
 • Server Time: {datetime.datetime.now().strftime('%H:%M:%S')} WIB
 """
-        # Tampilkan ulang menu utama beserta status
         keyboard = [[InlineKeyboardButton("🔙 Kembali ke Menu Utama", callback_data="btn_main_menu")]]
         await query.edit_message_text(status_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "btn_journal":
-        await query.edit_message_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*\nLaporan akan dikirimkan ke chat dalam beberapa detik.", parse_mode="Markdown")
+        await query.edit_message_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*", parse_mode="Markdown")
         threading.Thread(target=generate_daily_journal_job, daemon=True).start()
 
     elif data == "btn_lockdown":
@@ -1126,10 +1116,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
             threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
     elif data == "btn_voice_info":
-        await query.edit_message_text("🎙️ *VOICE CONVERSATION MODE*\nTahan tombol Mic di Telegram untuk mengirim Voice Note. Jarvis akan langsung merespons dengan balasan suara Ardi Neural secara instan!", parse_mode="Markdown")
+        await query.edit_message_text("🎙️ *VOICE CONVERSATION MODE*\nTahan tombol Mic di Telegram untuk mengirim Voice Note. Jarvis akan merespons dengan Balasan Suara murni!", parse_mode="Markdown")
 
     elif data == "btn_diagram_info":
-        await query.edit_message_text("🎨 *MARK-UI DIAGRAM GENERATOR*\nKetik perintah:\n`/diagram NodeA -> NodeB -> NodeC`\nJarvis akan langsung menggambar diagram alur visual secara instan!", parse_mode="Markdown")
+        await query.edit_message_text("🎨 *MARK-UI DIAGRAM GENERATOR*\nKetik perintah:\n`/diagram NodeA -> NodeB -> NodeC`", parse_mode="Markdown")
 
     elif data == "btn_main_menu":
         await menu_command_handler(update, context)
@@ -1140,26 +1130,23 @@ def run_telegram_bot():
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-            # 🟢 STARK-OVERSEER MENU COMMANDS
             app.add_handler(CommandHandler("start", menu_command_handler))
             app.add_handler(CommandHandler("menu", menu_command_handler))
             app.add_handler(CallbackQueryHandler(button_callback_handler))
             
-            # Stark Commands
             app.add_handler(CommandHandler("lockdown", lockdown_command_handler))
             app.add_handler(CommandHandler("unlock", unlock_command_handler))
             app.add_handler(CommandHandler("legion", legion_command_handler))
             
-            # Standard Commands
             app.add_handler(CommandHandler("voice", voice_command_handler))
             app.add_handler(CommandHandler("code", code_command_handler))
             app.add_handler(CommandHandler("status", status_command_handler))
             
-            # Handlers (TAMBAHKAN FILTERS.VOICE DI SINI)
-            app.add_handler(MessageHandler(filters.VOICE, voice_message_handler)) # 👈 BARU!
+            app.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
             app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
+            
             app.add_handler(CommandHandler("diagram", diagram_command_handler))
             app.add_handler(CommandHandler("research", research_command_handler))
             app.add_handler(CommandHandler("cmd", cmd_command_handler))
