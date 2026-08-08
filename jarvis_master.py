@@ -513,6 +513,7 @@ def daily_briefing_job():
 scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
 scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
 scheduler.add_job(generate_daily_journal_job, 'cron', hour=23, minute=59)
+scheduler.add_job(ultron_sentinel_ping_job, 'interval', minutes=15)
 scheduler.start()
 
 # ==========================================
@@ -635,6 +636,58 @@ async def execute_browser_automation(url: str, action: str = "screenshot", form_
     except Exception as e:
         print(f"🚨 [FRIDAY BROWSER ERROR]: {e}")
         return False, f"🚨 Error otomatisasi web: {e}", ""
+
+# ==========================================
+# PROJECT ULTRON-SENTINEL: UPTIME & HEALTH MONITOR
+# ==========================================
+# Daftar URL / Endpoint yang ingin dipantau 24/7 oleh Jarvis
+MONITORED_TARGETS = [
+    {"name": "Railway FastAPI Server", "url": "https://web-production-xxxx.up.railway.app/"},
+    {"name": "GitHub Repository", "url": "https://github.com/Ragilazzura/jarvis-apk-builder"}
+]
+
+def ultron_sentinel_ping_job():
+    """Fungsi otomatis yang mengecek kesehatan server & API setiap 15 menit"""
+    if IS_LOCKDOWN: return
+
+    print("🛰️ [ULTRON-SENTINEL] Running 24/7 Uptime & Endpoint Health Check...")
+    
+    failed_services = []
+    
+    for target in MONITORED_TARGETS:
+        name = target["name"]
+        url = target["url"]
+        
+        # Abaikan jika URL masih placeholder
+        if "xxxx" in url: continue
+
+        try:
+            start_time = time.time()
+            response = requests.get(url, timeout=10)
+            latency = round((time.time() - start_time) * 1000, 2)
+
+            if response.status_code >= 400:
+                failed_services.append(f"• *{name}*: HTTP Status {response.status_code} ({url})")
+            else:
+                print(f"✅ [SENTINEL] {name} is OK ({latency}ms)")
+        except Exception as e:
+            failed_services.append(f"• *{name}*: Unreachable ({e})")
+
+    # Jika ada server yang down, kirim Alert Alarm ke Telegram
+    if failed_services:
+        alert_body = "\n".join(failed_services)
+        alarm_msg = f"🚨 *ULTRON-SENTINEL ALARM: SERVICE DOWN DETECTED!*\n\n{alert_body}\n\n*Action Required:* Mohon periksa server/koneksi Bos!"
+        
+        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": alarm_msg,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url_api, json=payload)
+        except Exception as e:
+            print(f"[!] Gagal kirim Sentinel Alarm: {e}")
 
 # ==========================================
 # FASTAPI SERVER ENGINE + SMART RESPONSE MODE
@@ -1221,6 +1274,18 @@ async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     threading.Thread(target=run_async_browser, daemon=True).start()
 
+async def sentinel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /sentinel untuk memicu tes kesehatan server secara langsung"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    await update.message.reply_text("🛰️ *ULTRON-SENTINEL sedang memindai kesehatan seluruh endpoint & server...*")
+
+    def run_async_sentinel():
+        ultron_sentinel_ping_job()
+        
+    threading.Thread(target=run_async_sentinel, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -1251,6 +1316,7 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("testbug", testbug_command_handler))
             app.add_handler(CommandHandler("git", git_command_handler))
             app.add_handler(CommandHandler("web", web_command_handler))
+            app.add_handler(CommandHandler("sentinel", sentinel_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
