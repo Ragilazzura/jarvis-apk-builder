@@ -601,9 +601,9 @@ def veronica_global_exception_handler(exctype, value, tb):
 sys.excepthook = veronica_global_exception_handler
 
 # ==========================================
-# FASTAPI SERVER ENGINE + IOT WEBHOOK BRIDGE
+# FASTAPI SERVER ENGINE + IOT & KINETIC-UI ENDPOINTS
 # ==========================================
-web_app = FastAPI(title="Jarvis Mobile & IoT API")
+web_app = FastAPI(title="Jarvis Mobile, IoT & KINETIC-UI API")
 
 web_app.add_middleware(
     CORSMiddleware,
@@ -623,13 +623,46 @@ class IoTCommandRequest(BaseModel):
 
 @web_app.get("/")
 def read_root():
-    return {"status": "Jarvis Web & IoT Bridge Online", "lockdown": IS_LOCKDOWN}
+    return {
+        "status": "Jarvis Web, IoT Bridge & KINETIC-UI Online",
+        "lockdown": IS_LOCKDOWN,
+        "time": str(datetime.datetime.now())
+    }
 
+# 🟢 ENDPOINT 1: Chat Interaktif (Flutter / Web)
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
+    if IS_LOCKDOWN:
+        return {"status": "error", "reply": "🔒 STARK LOCKDOWN ACTIVE."}
+    
     reply = ask_jarvis(request.message)
-    return {"reply": reply}
+    return {
+        "status": "success",
+        "reply": reply,
+        "timestamp": str(datetime.datetime.now())
+    }
 
+# 🟢 ENDPOINT 2: Real-time System Status Dashboard (KINETIC-UI)
+@web_app.get("/status")
+def status_endpoint():
+    return {
+        "status": "online",
+        "lockdown": IS_LOCKDOWN,
+        "cpu_usage": psutil.cpu_percent(),
+        "ram_usage": psutil.virtual_memory().percent,
+        "server_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+# 🟢 ENDPOINT 3: Riwayat Memori Percakapan (KINETIC-UI)
+@web_app.get("/history")
+def history_endpoint():
+    memories = get_all_memories()
+    return {
+        "status": "success",
+        "memories": memories
+    }
+
+# 🟢 ENDPOINT 4: Smart Home / IoT Control Bridge
 @web_app.post("/iot/control")
 async def iot_control_endpoint(request: IoTCommandRequest):
     """Bridge kontrol smart device / home automation"""
@@ -637,7 +670,6 @@ async def iot_control_endpoint(request: IoTCommandRequest):
         return {"status": "error", "message": "System is in Lockdown"}
     
     print(f"📡 [STARK IOT BRIDGE] Device: {request.device_id} | Action: {request.action}")
-    # Kirim konfirmasi balasan ke Bos
     return {
         "status": "success",
         "device": request.device_id,
@@ -645,23 +677,13 @@ async def iot_control_endpoint(request: IoTCommandRequest):
         "timestamp": str(datetime.datetime.now())
     }
 
+# 🛡️ GLOBAL EXCEPTION HANDLER (VERONICA AUTO-FIXER)
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
     """Menangkap error HTTP 500 di FastAPI dan memicu VERONICA"""
     error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
     
-    # Jalankan Veronica Auto-Fixer
-    threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
-    
-    return JSONResponse(
-        status_code=500,
-        content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
-    )@web_app.exception_handler(Exception)
-async def global_fastapi_exception_handler(request: Request, exc: Exception):
-    """Menangkap error HTTP 500 di FastAPI dan memicu VERONICA"""
-    error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
-    
-    # Jalankan Veronica Auto-Fixer
+    # Jalankan Veronica Auto-Fixer di background thread
     threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
     
     return JSONResponse(
