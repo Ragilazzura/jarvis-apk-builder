@@ -38,6 +38,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi import WebSocket, WebSocketDisconnect
 import uvicorn
 
 # ==========================================
@@ -440,6 +441,46 @@ def generate_and_test_code(prompt_request: str, target_filename: str = "generate
             
     return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan.", target_filename
 
+async def computer_vision_snapshot_analysis(prompt_instruction: str = "Deskripsikan apa yang terlihat di depan kamera saat ini secara detail, Bos.") -> str:
+    """Mengambil frame dari webcam lokal dan menganalisisnya dengan Gemini Multimodal"""
+    print("👁️ [COMPUTER VISION] Mengakses lensa kamera lokal...")
+    try:
+        import cv2
+        
+        # Buka kamera default (0 = Webcam utama)
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            return "🚨 Gagal mengakses lensa kamera (Webcam tidak ditemukan atau sedang digunakan aplikasi lain)."
+
+        ret, frame = cap.read()
+        cap.release() # Langsung lepaskan kamera agar tidak nyangkut
+
+        if not ret:
+            return "🚨 Gagal mengambil frame gambar dari kamera."
+
+        # Simpan frame sementara sebagai file gambar
+        snap_filename = f"vision_snap_{int(time.time())}.jpg"
+        cv2.imwrite(snap_filename, frame)
+
+        # Baca file gambar ke dalam bentuk bytes untuk dikirim ke Gemini
+        with open(snap_filename, "rb") as img_file:
+            img_bytes = img_file.read()
+
+        # Analisis menggunakan fungsi multimodal Jarvis yang sudah ada
+        analysis_result = ask_jarvis_with_image(img_bytes, prompt_instruction)
+
+        # Hapus file sampah sementara
+        if os.path.exists(snap_filename):
+            os.remove(snap_filename)
+
+        return analysis_result
+
+    except ImportError:
+        return "⚠️ Pustaka `opencv-python` belum terpasang di environment host. Ketik `pip install opencv-python` di terminal."
+    except Exception as e:
+        print(f"🚨 [COMPUTER VISION ERROR] {e}")
+        return f"🚨 Terjadi kesalahan sistem penglihatan komputer: {e}"
+
 # ==========================================
 # MARK-UI: DIAGRAM GENERATOR ENGINE
 # ==========================================
@@ -797,6 +838,42 @@ async def iot_control_endpoint(request: IoTCommandRequest):
         "executed_action": request.action,
         "timestamp": str(datetime.datetime.now())
     }
+
+@web_app.websocket("/ws/voice")
+async def websocket_voice_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("🎙️ [LIVE VOICE] Klien terhubung via WebSocket Audio Stream.")
+    
+    try:
+        while True:
+            # Menerima chunk audio (bytes) dari klien (Flutter / Klien Audio)
+            data = await websocket.receive_bytes()
+            
+            if not data:
+                continue
+                
+            print(f"🎙️ [LIVE VOICE] Menerima data audio stream ({len(data)} bytes)...")
+            
+            # Simulasi / Proses Audio Stream dengan Gemini Multimodal / Edge-TTS
+            # (Untuk tahap awal, kita kirim balik sinyal echo atau respons audio terproses)
+            response_text = ask_jarvis("Halo Bos, saya mendengarkan stream suara Anda.")
+            audio_b64 = await generate_tts_base64(response_text)
+            
+            # Kirim kembali respons audio base64 ke klien secara real-time
+            await websocket.send_json({
+                "status": "success",
+                "reply": response_text,
+                "audio_base64": audio_b64
+            })
+            
+    except WebSocketDisconnect:
+        print("🎙️ [LIVE VOICE] Klien terputus dari WebSocket.")
+    except Exception as e:
+        print(f"🚨 [LIVE VOICE ERROR] {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
@@ -1465,6 +1542,38 @@ async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFA
     else:
         await update.message.reply_text("🚨 Argumen perintah `/pc` kurang lengkap atau tidak valid.")
 
+async def vision_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /vision [instruksi] untuk memicu mata AI Watcher"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK LOCKDOWN ACTIVE.* Sistem mata komputer dikunci.")
+        return
+
+    custom_prompt = " ".join(context.args) if context.args else "Periksa ruangan di depan kamera, apakah ada hal penting atau aktivitas yang terlihat?"
+    
+    await update.message.reply_text("👁️ *COMPUTER VISION:* Mengaktifkan lensa pemantau...")
+
+    def run_async_vision():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result_report = loop.run_until_complete(computer_vision_snapshot_analysis(custom_prompt))
+        loop.close()
+
+        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": f"👁️ *AI WATCHER REPORT*\n\n{result_report}",
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url_api, json=payload)
+        except Exception as e:
+            print(f"[!] Gagal kirim laporan vision: {e}")
+
+    threading.Thread(target=run_async_vision, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -1498,6 +1607,8 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("sentinel", sentinel_command_handler))
             app.add_handler(CommandHandler("recall", recall_command_handler))
             app.add_handler(CommandHandler("pc", pc_command_handler))
+            app.add_handler(CommandHandler("pc_advance", pc_advanced_command_handler))
+            app.add_handler(CommandHandler("vision", vision_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
