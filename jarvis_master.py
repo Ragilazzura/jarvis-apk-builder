@@ -926,12 +926,25 @@ async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*")
     
-    # Sengaja buat error pembagian nol
+    # Sengaja buat error pembagian nol & tangkap traceback aslinya
     try:
-        result = 100 / 0
+        simulated_crash = 100 / 0
     except Exception as e:
         error_msg = traceback.format_exc()
-        threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+        
+        # Kirim prompt eksplisit agar Gemini langsung menganalisis tanpa bertanya balik
+        explicit_veronica_prompt = f"""
+[PERINTAH KELUARAN SISTEM - UTAMAKAN RESPON LANGSUNG]
+Telah terjadi crash nyata pada aplikasi dengan stacktrace berikut:
+
+{error_msg}
+
+Tugasmu sebagai VERONICA:
+1. Jelaskan mengapa pembagian nol (ZeroDivisionError) ini terjadi.
+2. Berikan kode perbaikannya menggunakan try-except atau validasi penyebut != 0.
+3. Tulis dengan gaya sigap khas VERONICA. JANGAN bertanya balik, langsung berikan analisis dan solusinya sekarang.
+"""
+        threading.Thread(target=veronica_auto_fix_bug, args=(explicit_veronica_prompt,), daemon=True).start()
 
 def run_telegram_bot():
     while True:
