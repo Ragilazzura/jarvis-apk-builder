@@ -25,6 +25,7 @@ from pypdf import PdfReader
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
+from duckduckgo_search import DDGS
 
 # --- IMPORT FASTAPI & CORSMiddleware ---
 from fastapi import FastAPI, BackgroundTasks
@@ -303,6 +304,45 @@ def legion_sub_agent_task(agent_type: str, task_prompt: str):
         requests.post(url, json=payload)
     except Exception as e:
         print(f"[!] Gagal kirim laporan Sub-Agent: {e}")
+
+def autonomous_research(query: str, max_results: int = 4) -> str:
+    """Melakukan pencarian web mandiri dan menyusun ringkasan riset"""
+    print(f"🛰️ [FRIDAY AGENT] Melakukan riset web mandiri untuk: '{query}'...")
+    search_results = []
+    
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+            for r in results:
+                title = r.get('title', '')
+                snippet = r.get('body', '')
+                link = r.get('href', '')
+                search_results.append(f"• **{title}**\n  {snippet}\n  Link: {link}")
+    except Exception as e:
+        print(f"[!] DuckDuckGo Search Error: {e}")
+        return f"Gagal melakukan pencarian web: {e}"
+
+    if not search_results:
+        return "Tidak ditemukan hasil yang relevan di web, Bos."
+
+    raw_research_data = "\n\n".join(search_results)
+    
+    # Minta Gemini merangkum hasil riset web tersebut
+    prompt = f"""
+Kamu adalah FRIDAY, Sub-Agent Riset Otonom milik Bos.
+Berikut adalah data hasil pencarian web terbaru mengenai topik: "{query}"
+
+--- DATA HASIL PENCARIAN WEB ---
+{raw_research_data}
+--- END DATA ---
+
+Tugasmu:
+1. Buatkan ringkasan riset yang sangat jelas, padat, profesional, dan langsung ke inti informasi.
+2. Cantumkan poin-poin penting utama.
+3. Sebutkan sumber link referensi jika relevan.
+Jawab dengan gaya bahasa Jarvis yang luwes dan panggil "Bos".
+"""
+    return ask_jarvis(prompt)
 
 # ==========================================
 # VOICE & CODE AGENT ENGINES
@@ -657,6 +697,34 @@ async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`, contoh:\n`/diagram User -> Bot -> Gemini API`")
 
+async def research_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler perintah /research <topik>"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if not context.args:
+        await update.message.reply_text("Sertakan topik yang mau diriset ya, Bos!\nContoh: `/research perkembangan AI terbaru 2026`")
+        return
+
+    topic = " ".join(context.args)
+    await update.message.reply_text(f"🛰️ *FRIDAY Agent dikirim!* Sedang menjelajah web untuk meriset `{topic}`...")
+
+    # Jalankan riset di background thread agar bot tidak freeze
+    def run_async_research():
+        report = autonomous_research(topic)
+        # Kirim hasil laporan riset ke Telegram Bos
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": f"📊 *RESEARCH REPORT: {topic.upper()}*\n\n{report}"
+        }
+        try:
+            requests.post(url, json=payload)
+        except Exception as e:
+            print(f"[!] Gagal kirim laporan riset: {e}")
+
+    threading.Thread(target=run_async_research, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -679,7 +747,8 @@ def run_telegram_bot():
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
             app.add_handler(CommandHandler("diagram", diagram_command_handler))
-            
+            app.add_handler(CommandHandler("research", research_command_handler))
+
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
             print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")

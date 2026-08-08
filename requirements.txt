@@ -16,3 +16,4 @@ Pillow
 pydub
 matplotlib
 networkx
+duckduckgo_search
