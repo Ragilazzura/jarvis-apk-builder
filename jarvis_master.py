@@ -146,6 +146,50 @@ def get_all_memories() -> str:
         return f"Error DB: {e}"
 
 # ==========================================
+# PROJECT T.A.C.H.I.: AUTO-JOURNALING ENGINE
+# ==========================================
+def generate_daily_journal_job():
+    """Fungsi otomatis jam 23:59: Membaca aktivitas hari ini & membuat Jurnal Rekap"""
+    if IS_LOCKDOWN: return
+
+    print("🧠 [T.A.C.H.I.] Mengompilasi Jurnal Harian Aktivitas Proyek Bos...")
+    today_str = datetime.datetime.now().strftime("%A, %d %B %Y")
+    
+    # Ambil memori terbaru dari SQLite
+    recent_memories = get_all_memories()
+    
+    prompt = f"""
+Kamu adalah T.A.C.H.I., sistem memori tingkat tinggi Jarvis.
+Tugasmu adalah membuat Ringkasan Jurnal Harian untuk Bos (Mr. Stark) berdasarkan catatan memori & aktivitas hari ini.
+
+Catatan Memori Terakhir:
+{recent_memories}
+
+Tuliskan Jurnal Harian untuk tanggal {today_str} yang berisi:
+1. Ringkasan Progres Utama Hari Ini.
+2. Fitur / Perubahan yang Berhasil Dideploy.
+3. Rekomendasi/Catatan untuk Esok Hari.
+
+Tulis dengan gaya bahasa Jarvis yang berkelas, padat, dan panggil "Bos".
+"""
+    journal_result = ask_jarvis(prompt)
+    
+    # Simpan jurnal ini ke SQLite & ChromaDB
+    save_memory("DAILY_JOURNAL", f"[{today_str}] {journal_result[:500]}")
+    add_to_vector_db(journal_result, f"journal_{int(time.time())}", {"type": "daily_journal", "date": today_str})
+    
+    # Kirim Laporan Jurnal Malam ke Telegram Bos
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": f"📖 *STARK INDUSTRIES DAILY JOURNAL ({today_str})*\n\n{journal_result}"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim Jurnal Harian: {e}")
+
+# ==========================================
 # STARK INTRUSION & SECURITY PROTOCOL
 # ==========================================
 def send_security_alert(intruder_id: str, message_text: str):
@@ -428,6 +472,7 @@ def daily_briefing_job():
 
 scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
 scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
+scheduler.add_job(generate_daily_journal_job, 'cron', hour=23, minute=59)
 scheduler.start()
 
 # ==========================================
@@ -796,6 +841,18 @@ async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     threading.Thread(target=run_async_cmd, daemon=True).start()
 
+async def journal_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /journal untuk memicu rekap jurnal T.A.C.H.I. secara instan"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    await update.message.reply_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*")
+    
+    def run_async_journal():
+        generate_daily_journal_job()
+
+    threading.Thread(target=run_async_journal, daemon=True).start()
+
 def run_telegram_bot():
     while True:
         try:
@@ -820,6 +877,7 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("diagram", diagram_command_handler))
             app.add_handler(CommandHandler("research", research_command_handler))
             app.add_handler(CommandHandler("cmd", cmd_command_handler))
+            app.add_handler(CommandHandler("journal", journal_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:
