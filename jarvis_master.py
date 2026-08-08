@@ -550,6 +550,53 @@ async def pdf_document_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
 
+async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler pesan suara (Voice Note) otomatis dari Bos"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[Voice Note Intrusion Attempt]")
+        return
+
+    await update.message.reply_text("🎙️ *Jarvis mendengarkan pesan suara Bos...*")
+
+    # 1. Unduh Voice Note (.ogg) dari Telegram
+    voice_file = await update.message.voice.get_file()
+    ogg_path = f"user_voice_{int(time.time())}.ogg"
+    await voice_file.download_to_drive(ogg_path)
+
+    try:
+        # 2. Kirim Audio langsung ke Otak Gemini Multimodal
+        with open(ogg_path, "rb") as f:
+            audio_bytes = f.read()
+
+        print("🎙️ Memproses audio pesan suara Bos ke Gemini...")
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[
+                {"mime_type": "audio/ogg", "data": audio_bytes},
+                f"{JARVIS_PERSONA}\n\nDengarkan suara Bos di atas, pahami pesannya, lalu berikan jawaban yang singkat, padat, dan luwes."
+            ]
+        )
+        reply_text = response.text
+        clean_reply = re.sub(r'#+\s*', '', reply_text).replace('**', '').replace('*', '')
+
+        # 3. Ubah Balasan Teks Jarvis menjadi Suara (Voice Note)
+        voice_reply_path = await generate_voice_response(clean_reply)
+
+        if voice_reply_path and os.path.exists(voice_reply_path):
+            with open(voice_reply_path, 'rb') as v_out:
+                await update.message.reply_voice(voice=v_out, caption=f"💬 {clean_reply[:150]}...")
+            os.remove(voice_reply_path)
+        else:
+            await safe_reply(update, clean_reply)
+
+    except Exception as e:
+        print(f"❌ Error Voice Processing: {e}")
+        await update.message.reply_text(f"🚨 Maaf Bos, gagal memproses suara: {e}")
+    finally:
+        if os.path.exists(ogg_path):
+            os.remove(ogg_path)
+
 def run_telegram_bot():
     while True:
         try:
@@ -566,7 +613,8 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("code", code_command_handler))
             app.add_handler(CommandHandler("status", status_command_handler))
             
-            # Handlers
+            # Handlers (TAMBAHKAN FILTERS.VOICE DI SINI)
+            app.add_handler(MessageHandler(filters.VOICE, voice_message_handler)) # 👈 BARU!
             app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
             app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
             app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
