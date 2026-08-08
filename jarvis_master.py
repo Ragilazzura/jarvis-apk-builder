@@ -1384,6 +1384,87 @@ async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("🚨 Aksi PC tidak dikenali. Ketik `/pc` untuk melihat daftar perintah.")
 
+async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /pc advance untuk kontrol aplikasi dan file lokal"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK LOCKDOWN ACTIVE.*")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "💻 *DEEP OS CONTROL (LOCAL-OVERRIDE)*\n\n"
+            "Format Perintah Tambahan:\n"
+            "• `/pc open <app>` - Membuka aplikasi (contoh: `notepad`, `code`, `chrome`)\n"
+            "• `/pc search <nama_file>` - Mencari file di direktori komputer\n"
+            "• `/pc volume <up/down/mute>` - Mengatur volume suara PC",
+            parse_mode="Markdown"
+        )
+        return
+
+    sub_action = context.args[0].lower()
+    param = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+
+    if sub_action == "open" and param:
+        try:
+            if os.name == 'nt': # Windows
+                if "code" in param:
+                    subprocess.Popen(["code"])
+                elif "chrome" in param:
+                    subprocess.Popen(["start", "chrome"], shell=True)
+                elif "notepad" in param:
+                    subprocess.Popen(["notepad.exe"])
+                else:
+                    subprocess.Popen(f"start {param}", shell=True)
+            else: # Linux/Mac
+                subprocess.Popen([param])
+            await update.message.reply_text(f"🚀 Perintah membuka `{param}` berhasil dieksekusi, Bos!")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Gagal membuka aplikasi: {e}")
+
+    elif sub_action == "search" and param:
+        await update.message.reply_text(f"🔍 Mencari file dengan kata kunci `{param}` di direktori lokal...")
+        found_files = []
+        try:
+            # Cari di direktori home pengguna untuk keamanan & kecepatan
+            search_root = os.path.expanduser("~")
+            for root, dirs, files in os.walk(search_root):
+                # Batasi kedalaman pencarian agar tidak lag
+                if root[len(search_root):].count(os.sep) > 3:
+                    continue
+                for file in files:
+                    if param.lower() in file.lower():
+                        found_files.append(os.path.join(root, file))
+                        if len(found_files) >= 5: # Batasi 5 hasil teratas
+                            break
+                if len(found_files) >= 5:
+                    break
+
+            if found_files:
+                result_str = "\n".join([f"• `{f}`" for f in found_files])
+                await update.message.reply_text(f"📂 *File Ditemukan:*\n{result_str}", parse_mode="Markdown")
+            else:
+                await update.message.reply_text(f"🔍 Tidak ditemukan file dengan nama `{param}`.")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Error saat mencari file: {e}")
+
+    elif sub_action == "volume":
+        try:
+            import pyautogui
+            if param == "up":
+                for _ in range(5): pyautogui.press("volumeup")
+            elif param == "down":
+                for _ in range(5): pyautogui.press("volumedown")
+            elif param == "mute":
+                pyautogui.press("volumemute")
+            await update.message.reply_text(f"🔊 Volume PC diatur: `{param}`")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Gagal mengatur volume (Pastikan pustaka `pyautogui` terpasang): {e}")
+    else:
+        await update.message.reply_text("🚨 Argumen perintah `/pc` kurang lengkap atau tidak valid.")
+
 def run_telegram_bot():
     while True:
         try:
