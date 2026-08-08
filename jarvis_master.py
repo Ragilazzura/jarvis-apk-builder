@@ -1062,6 +1062,8 @@ Silakan pilih protokol yang ingin dieksekusi, Bos:
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler aksi saat tombol interaktif diklik oleh Bos"""
+    global IS_LOCKDOWN
+
     query = update.callback_query
     chat_id = str(query.message.chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
@@ -1089,7 +1091,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         threading.Thread(target=generate_daily_journal_job, daemon=True).start()
 
     elif data == "btn_lockdown":
-        global IS_LOCKDOWN
         IS_LOCKDOWN = not IS_LOCKDOWN
         state_str = "🔒 *LOCKED*" if IS_LOCKDOWN else "🔓 *UNLOCKED*"
         await query.edit_message_text(f"🛡️ *STARK SECURITY:* Status Lockdown berhasil diubah menjadi {state_str}.", parse_mode="Markdown")
