@@ -24,8 +24,11 @@ import edge_tts
 from google import genai
 import chromadb
 from pypdf import PdfReader
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, MessageHandler, CommandHandler, 
+    CallbackQueryHandler, filters, ContextTypes
+)
 from apscheduler.schedulers.background import BackgroundScheduler
 from duckduckgo_search import DDGS
 
@@ -938,11 +941,107 @@ async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_
         error_msg = traceback.format_exc()
         threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
 
+# ==========================================
+# PROJECT STARK-OVERSEER: INTERACTIVE MENU ENGINE
+# ==========================================
+async def menu_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /menu atau /start untuk menampilkan Control Center berbasis Tombol"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID:
+        send_security_alert(chat_id, "[STARK-OVERSEER Menu Access Attempt]")
+        return
+
+    # Susun Tata Letak Tombol Interaktif (Inline Keyboard)
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 System Health", callback_data="btn_status"),
+            InlineKeyboardButton("📖 Daily Journal", callback_data="btn_journal")
+        ],
+        [
+            InlineKeyboardButton("🔒 Toggle Lockdown", callback_data="btn_lockdown"),
+            InlineKeyboardButton("🧪 Test VERONICA Bug", callback_data="btn_testbug")
+        ],
+        [
+            InlineKeyboardButton("🎙️ Voice Mode Info", callback_data="btn_voice_info"),
+            InlineKeyboardButton("🎨 Diagram Help", callback_data="btn_diagram_info")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    status_indicator = "🔒 LOCKED" if IS_LOCKDOWN else "🟢 ONLINE"
+    message_text = f"""
+🎛️ *J.A.R.V.I.S. STARK-OVERSEER CONTROL CENTER*
+Status Sistem: *{status_indicator}*
+
+Silakan pilih protokol yang ingin dieksekusi, Bos:
+"""
+
+    if update.message:
+        await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler aksi saat tombol interaktif diklik oleh Bos"""
+    query = update.callback_query
+    chat_id = str(query.message.chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    await query.answer() # Beri konfirmasi klik tombol ke Telegram
+    data = query.data
+
+    if data == "btn_status":
+        cpu_usage = psutil.cpu_percent()
+        ram_usage = psutil.virtual_memory().percent
+        status_msg = f"""
+📊 *STARK SYSTEM HEALTH REPORT*
+• Lockdown Status: {'🔒 LOCKED' if IS_LOCKDOWN else '🟢 NORMAL'}
+• CPU Usage: {cpu_usage}%
+• RAM Usage: {ram_usage}%
+• Memory Engine: SQLite & ChromaDB Active
+• Server Time: {datetime.datetime.now().strftime('%H:%M:%S')} WIB
+"""
+        # Tampilkan ulang menu utama beserta status
+        keyboard = [[InlineKeyboardButton("🔙 Kembali ke Menu Utama", callback_data="btn_main_menu")]]
+        await query.edit_message_text(status_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data == "btn_journal":
+        await query.edit_message_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*\nLaporan akan dikirimkan ke chat dalam beberapa detik.", parse_mode="Markdown")
+        threading.Thread(target=generate_daily_journal_job, daemon=True).start()
+
+    elif data == "btn_lockdown":
+        global IS_LOCKDOWN
+        IS_LOCKDOWN = not IS_LOCKDOWN
+        state_str = "🔒 *LOCKED*" if IS_LOCKDOWN else "🔓 *UNLOCKED*"
+        await query.edit_message_text(f"🛡️ *STARK SECURITY:* Status Lockdown berhasil diubah menjadi {state_str}.", parse_mode="Markdown")
+
+    elif data == "btn_testbug":
+        await query.edit_message_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*", parse_mode="Markdown")
+        try:
+            _ = 100 / 0
+        except Exception:
+            error_msg = traceback.format_exc()
+            threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
+
+    elif data == "btn_voice_info":
+        await query.edit_message_text("🎙️ *VOICE CONVERSATION MODE*\nTahan tombol Mic di Telegram untuk mengirim Voice Note. Jarvis akan langsung merespons dengan balasan suara Ardi Neural secara instan!", parse_mode="Markdown")
+
+    elif data == "btn_diagram_info":
+        await query.edit_message_text("🎨 *MARK-UI DIAGRAM GENERATOR*\nKetik perintah:\n`/diagram NodeA -> NodeB -> NodeC`\nJarvis akan langsung menggambar diagram alur visual secara instan!", parse_mode="Markdown")
+
+    elif data == "btn_main_menu":
+        await menu_command_handler(update, context)
+
 def run_telegram_bot():
     while True:
         try:
             print("🤖 Memulai Telegram Bot...")
             app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
+            # 🟢 STARK-OVERSEER MENU COMMANDS
+            app.add_handler(CommandHandler("start", menu_command_handler))
+            app.add_handler(CommandHandler("menu", menu_command_handler))
+            app.add_handler(CallbackQueryHandler(button_callback_handler))
             
             # Stark Commands
             app.add_handler(CommandHandler("lockdown", lockdown_command_handler))
