@@ -1,80 +1,86 @@
 import os
-import io
+import re
 import discord
-from discord.ext import commands
+from google import genai
 
-from jarvis_master import (
-    client, MODEL_NAME, JARVIS_PERSONA, 
-    get_all_memories, search_vector_db, ask_jarvis, ask_jarvis_with_image,
-    generate_voice_response, generate_and_test_code, IS_LOCKDOWN
-)
+# ==========================================
+# KONFIGURASI DISCORD BOT
+# ==========================================
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
+client = genai.Client(api_key=CLEAN_GEMINI_KEY)
 
+JARVIS_PERSONA = """
+Kamu adalah J.A.R.V.I.S., asisten AI pribadi super canggih, adaptif, cerdas, dan sangat loyal milik Bos (Mr. Stark).
+
+GAYA BAHASA & KEPRIBADIAN:
+1. BAHASA BILINGUAL & ADAPTIF:
+   - Secara otomatis sesuaikan bahasa jawabanmu berdasarkan bahasa yang digunakan.
+   - Panggil pengguna dengan sebutan "Bos" atau "Sir".
+2. GAYA KOMUNIKASI:
+   - Tampil cerdas, responsif, berkelas, dan miliki sedikit sentuhan kecerdasan khas J.A.R.V.I.S.
+3. TAMPILAN TEKS:
+   - JANGAN gunakan simbol pagar (#) berlebihan. Gunakan poin atau teks murni agar rapi di Discord.
+"""
+
+# Setup Intents Discord
 intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+intents.message_content = True  # Wajib diaktifkan agar bot bisa baca pesan chat
+discord_client = discord.Client(intents=intents)
 
-@bot.event
+@discord_client.event
 async def on_ready():
-    print(f"🤖 Jarvis Discord Agent Online sebagai {bot.user}")
+    print(f"🎮 [DISCORD-LINK] J.A.R.V.I.S. berhasil mengudara sebagai {discord_client.user}")
+    await discord_client.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="perintah Bos"))
 
-@bot.command(name="status")
-async def status_cmd(ctx):
-    import psutil
-    cpu = psutil.cpu_percent()
-    ram = psutil.virtual_memory().percent
-    await ctx.send(f"📊 **STARK DISCORD HEALTH**\n• Lockdown: {'🔒 YES' if IS_LOCKDOWN else '🟢 NO'}\n• CPU: {cpu}%\n• RAM: {ram}%")
-
-@bot.command(name="voice")
-async def voice_cmd(ctx, *, prompt: str):
-    async with ctx.typing():
-        reply_text = ask_jarvis(prompt)
-        voice_path = await generate_voice_response(reply_text)
-        if voice_path and os.path.exists(voice_path):
-            await ctx.send(content=f"💬 {reply_text[:200]}...", file=discord.File(voice_path))
-            os.remove(voice_path)
-        else:
-            await ctx.send(reply_text)
-
-@bot.command(name="code")
-async def code_cmd(ctx, *, prompt: str):
-    async with ctx.typing():
-        await ctx.send("🤖 Jarvis Code Agent sedang memproses & menguji kodingan...")
-        is_success, status_msg, file_path = generate_and_test_code(prompt)
-        await ctx.send(status_msg)
-        if is_success and os.path.exists(file_path):
-            await ctx.send(file=discord.File(file_path))
-
-@bot.event
+@discord_client.event
 async def on_message(message):
-    if message.author == bot.user:
+    # Cegah bot membalas pesannya sendiri
+    if message.author == discord_client.user:
         return
 
-    await bot.process_commands(message)
-
-    if message.content.startswith("!"):
-        return
-
-    if bot.user.mentioned_in(message) or "jarvis" in message.content.lower():
-        user_msg = message.content.replace(f"<@{bot.user.id}>", "").strip()
+    # Hanya merespons jika bot di-mention atau dipanggil di Direct Message (DM)
+    if discord_client.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
         
+        # Hapus tag mention dari teks pengguna
+        user_msg = message.content.replace(f'<@{discord_client.user.id}>', '').strip()
+        if not user_msg:
+            user_msg = "Halo Jarvis, apa statusmu saat ini?"
+
+        system_prompt = f"{JARVIS_PERSONA}\n\nPesan Pengguna (dari server Discord): {user_msg}"
+
+        # Tampilkan efek "Jarvis is typing..." di Discord
         async with message.channel.typing():
             try:
-                if message.attachments:
-                    for att in message.attachments:
-                        if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp']):
-                            img_bytes = await att.read()
-                            reply_text = ask_jarvis_with_image(img_bytes, user_msg)
-                            await message.reply(reply_text)
-                            return
+                # Memanggil Otak Utama Gemini
+                response = client.models.generate_content(
+                    model="gemini-3.6-flash",
+                    contents=system_prompt
+                )
+                
+                # Pembersihan format Markdown berlebih
+                clean_text = response.text
+                clean_text = re.sub(r'#+\s*', '', clean_text)
+                clean_text = clean_text.replace('**', '').replace('*', '')
 
-                reply_text = ask_jarvis(user_msg)
-                if len(reply_text) > 1999:
-                    reply_text = reply_text[:1996] + "..."
-                await message.reply(reply_text)
+                # Discord memiliki limit 2000 karakter per pesan, kita pecah jika kepanjangan
+                if len(clean_text) > 2000:
+                    for i in range(0, len(clean_text), 2000):
+                        await message.reply(clean_text[i:i+2000])
+                else:
+                    await message.reply(clean_text)
+
             except Exception as e:
-                await message.reply(f"🚨 Gagal memproses data: {str(e)}")
+                print(f"🚨 Discord Gemini Error: {e}")
+                await message.reply("🚨 Maaf Bos, saya mengalami gangguan sinyal komunikasi ke satelit utama.")
 
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    if DISCORD_BOT_TOKEN:
+        discord_client.run(DISCORD_BOT_TOKEN)
+    else:
+        print("⚠️ [DISCORD-LINK] Token Discord tidak ditemukan. Melewati aktivasi Discord Bot.")
