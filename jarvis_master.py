@@ -162,6 +162,7 @@ def get_all_memories() -> str:
     except Exception as e: 
         return f"Error DB: {e}"
 
+
 # ==========================================
 # PROJECT T.A.C.H.I.: AUTO-JOURNALING ENGINE
 # ==========================================
@@ -1286,6 +1287,103 @@ async def sentinel_command_handler(update: Update, context: ContextTypes.DEFAULT
         
     threading.Thread(target=run_async_sentinel, daemon=True).start()
 
+async def recall_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /recall <topik> untuk mencari kembali memori/pengetahuan masa lalu"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if not context.args:
+        await update.message.reply_text("Sertakan kata kunci atau topik yang ingin diingat kembali, Bos!\nContoh: `/recall strategi deployment minggu lalu`")
+        return
+
+    query_topic = " ".join(context.args)
+    await update.message.reply_text(f"🧠 *M.I.N.D. PALACE:* Memindai arsip memori untuk topik `{query_topic}`...")
+
+    # Cari dari ChromaDB vector collection
+    retrieved_memory = search_vector_db(query_topic, n_results=5)
+    
+    if not retrieved_memory or "PENGETAHUAN TERKAIT" not in retrieved_memory:
+        await update.message.reply_text(f"🔍 Maaf Bos, tidak ditemukan arsip memori yang cocok dengan topik `{query_topic}`.")
+        return
+
+    # Minta Gemini merangkum hasil memori lama tersebut agar enak dibaca
+    prompt = f"""
+Kamu adalah M.I.N.D. PALACE Engine milik Jarvis.
+Berikut adalah data arsip memori lama yang ditemukan dari database terkait topik "{query_topic}":
+
+{retrieved_memory}
+
+Tugasmu:
+Rangkum dan jelaskan kembali informasi tersebut secara padat, jelas, dan bernada loyal kepada Bos. Beritahu Bos apa yang dulu pernah kita bahas mengenai hal ini.
+"""
+    summary_result = ask_jarvis(prompt)
+    await safe_reply(update, f"📖 *M.I.N.D. PALACE MEMORY RECALL*\n\n{summary_result}")
+
+async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler /pc <aksi> untuk kontrol komputer lokal"""
+    chat_id = str(update.effective_chat.id)
+    if chat_id != ALLOWED_CHAT_ID: return
+
+    if IS_LOCKDOWN:
+        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Kontrol PC dikunci.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "💻 *PROJECT LOCAL-OVERRIDE (PC CONTROL)*\n\n"
+            "Format Perintah:\n"
+            "• `/pc lock` - Mengunci layar komputer (Lock Screen)\n"
+            "• `/pc info` - Menampilkan spesifikasi & status hardware PC host\n"
+            "• `/pc screenshot` - Mengambil tangkapan layar (screenshot) monitor PC saat ini",
+            parse_mode="Markdown"
+        )
+        return
+
+    action = context.args[0].lower()
+
+    if action == "lock":
+        try:
+            # Perintah khusus Windows untuk mengunci layar
+            if os.name == 'nt':
+                subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=True)
+                await update.message.reply_text("🔒 Layar PC berhasil dikunci, Bos!")
+            else:
+                await update.message.reply_text("⚠️ Perintah lock screen saat ini hanya didukung pada host Windows.")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Gagal mengunci layar: {e}")
+
+    elif action == "info":
+        cpu_freq = psutil.cpu_freq().current if hasattr(psutil, "cpu_freq") else "N/A"
+        battery = psutil.sensors_battery()
+        battery_status = f"{battery.percent}% ({'Charging' if battery.power_plugged else 'Discharging'})" if battery else "N/A (Desktop)"
+        
+        info_text = f"""
+💻 *HOST PC STATUS OVERRIDE:*
+• OS: `{sys.platform}`
+• CPU Cores: `{psutil.cpu_count(logical=True)} Core`
+• CPU Frequency: `{cpu_freq} MHz`
+• RAM Total/Used: `{round(psutil.virtual_memory().total / (1024**3), 2)} GB` (`{psutil.virtual_memory().percent}%`)
+• Disk Usage: `{psutil.disk_usage('/').percent}%`
+• Power/Battery: `{battery_status}`
+"""
+        await update.message.reply_text(info_text, parse_mode="Markdown")
+
+    elif action == "screenshot":
+        try:
+            import pyautogui
+            snap_path = f"pc_snap_{int(time.time())}.png"
+            pyautogui.screenshot(snap_path)
+            
+            with open(snap_path, 'rb') as photo:
+                await update.message.reply_photo(photo=photo, caption="📸 *Live Host PC Screenshot*")
+            os.remove(snap_path)
+        except ImportError:
+            await update.message.reply_text("⚠️ Library `pyautogui` belum terpasang di environment host. Ketik `pip install pyautogui` di terminal.")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Gagal mengambil screenshot PC: {e}")
+    else:
+        await update.message.reply_text("🚨 Aksi PC tidak dikenali. Ketik `/pc` untuk melihat daftar perintah.")
+
 def run_telegram_bot():
     while True:
         try:
@@ -1317,6 +1415,8 @@ def run_telegram_bot():
             app.add_handler(CommandHandler("git", git_command_handler))
             app.add_handler(CommandHandler("web", web_command_handler))
             app.add_handler(CommandHandler("sentinel", sentinel_command_handler))
+            app.add_handler(CommandHandler("recall", recall_command_handler))
+            app.add_handler(CommandHandler("pc", pc_command_handler))
 
             app.run_polling(drop_pending_updates=True, stop_signals=None)
         except Exception as e:

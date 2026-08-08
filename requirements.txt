@@ -18,3 +18,4 @@ matplotlib
 networkx
 duckduckgo_search
 playwright
+pyautogui
