@@ -1461,7 +1461,7 @@ async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("🚨 Aksi PC tidak dikenali. Ketik `/pc` untuk melihat daftar perintah.")
 
 async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /pc advance untuk kontrol aplikasi dan file lokal"""
+    """Handler /pc advance untuk kontrol aplikasi dan file lokal dengan data presisi"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1472,10 +1472,11 @@ async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFA
     if not context.args:
         await update.message.reply_text(
             "💻 *DEEP OS CONTROL (LOCAL-OVERRIDE)*\n\n"
-            "Format Perintah Tambahan:\n"
-            "• `/pc open <app>` - Membuka aplikasi (contoh: `notepad`, `code`, `chrome`)\n"
-            "• `/pc search <nama_file>` - Mencari file di direktori komputer\n"
-            "• `/pc volume <up/down/mute>` - Mengatur volume suara PC",
+            "Format Perintah:\n"
+            "• `/pc info` - Status presisi Hardware PC\n"
+            "• `/pc open <app>` - Membuka aplikasi\n"
+            "• `/pc search <nama_file>` - Mencari file\n"
+            "• `/pc screenshot` - Ambil screenshot layar PC",
             parse_mode="Markdown"
         )
         return
@@ -1483,63 +1484,61 @@ async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFA
     sub_action = context.args[0].lower()
     param = " ".join(context.args[1:]) if len(context.args) > 1 else ""
 
-    if sub_action == "open" and param:
+    if sub_action == "info":
         try:
-            if os.name == 'nt': # Windows
-                if "code" in param:
-                    subprocess.Popen(["code"])
-                elif "chrome" in param:
-                    subprocess.Popen(["start", "chrome"], shell=True)
-                elif "notepad" in param:
-                    subprocess.Popen(["notepad.exe"])
-                else:
-                    subprocess.Popen(f"start {param}", shell=True)
-            else: # Linux/Mac
+            # Mengambil data RAM secara akurat
+            mem = psutil.virtual_memory()
+            total_ram = round(mem.total / (1024**3), 2)
+            used_ram = round(mem.used / (1024**3), 2)
+            
+            # Mengambil data Disk utama
+            disk = psutil.disk_usage('/')
+            total_disk = round(disk.total / (1024**3), 2)
+            used_disk = round(disk.used / (1024**3), 2)
+
+            # Cek status baterai dengan aman
+            battery = psutil.sensors_battery()
+            if battery:
+                plug_status = "Mengisi Daya (Charging)" if battery.power_plugged else "Menggunakan Baterai"
+                battery_status = f"{battery.percent}% ({plug_status})"
+            else:
+                battery_status = "Desktop / Sumber Daya Listrik Langsung"
+
+            info_text = f"""
+💻 *HOST PC SYSTEM METRICS (VERIFIED):*
+• OS Platform: `{sys.platform}`
+• CPU Usage: `{psutil.cpu_percent(interval=0.5)}%`
+• Logical Cores: `{psutil.cpu_count(logical=True)} Core`
+• RAM Total / Terpakai: `{used_ram} GB / {total_ram} GB` (`{mem.percent}%`)
+• Disk Utama C:/ Terpakai: `{used_disk} GB / {total_disk} GB` (`{disk.percent}%`)
+• Power / Baterai: `{battery_status}`
+"""
+            await update.message.reply_text(info_text, parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(f"🚨 Gagal membaca info hardware: {e}")
+
+    elif sub_action == "open" and param:
+        try:
+            if os.name == 'nt':
+                subprocess.Popen(f"start {param}", shell=True)
+            else:
                 subprocess.Popen([param])
-            await update.message.reply_text(f"🚀 Perintah membuka `{param}` berhasil dieksekusi, Bos!")
+            await update.message.reply_text(f"🚀 Perintah membuka `{param}` dieksekusi, Bos!")
         except Exception as e:
             await update.message.reply_text(f"🚨 Gagal membuka aplikasi: {e}")
 
-    elif sub_action == "search" and param:
-        await update.message.reply_text(f"🔍 Mencari file dengan kata kunci `{param}` di direktori lokal...")
-        found_files = []
-        try:
-            # Cari di direktori home pengguna untuk keamanan & kecepatan
-            search_root = os.path.expanduser("~")
-            for root, dirs, files in os.walk(search_root):
-                # Batasi kedalaman pencarian agar tidak lag
-                if root[len(search_root):].count(os.sep) > 3:
-                    continue
-                for file in files:
-                    if param.lower() in file.lower():
-                        found_files.append(os.path.join(root, file))
-                        if len(found_files) >= 5: # Batasi 5 hasil teratas
-                            break
-                if len(found_files) >= 5:
-                    break
-
-            if found_files:
-                result_str = "\n".join([f"• `{f}`" for f in found_files])
-                await update.message.reply_text(f"📂 *File Ditemukan:*\n{result_str}", parse_mode="Markdown")
-            else:
-                await update.message.reply_text(f"🔍 Tidak ditemukan file dengan nama `{param}`.")
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Error saat mencari file: {e}")
-
-    elif sub_action == "volume":
+    elif sub_action == "screenshot":
         try:
             import pyautogui
-            if param == "up":
-                for _ in range(5): pyautogui.press("volumeup")
-            elif param == "down":
-                for _ in range(5): pyautogui.press("volumedown")
-            elif param == "mute":
-                pyautogui.press("volumemute")
-            await update.message.reply_text(f"🔊 Volume PC diatur: `{param}`")
+            snap_path = f"pc_snap_{int(time.time())}.png"
+            pyautogui.screenshot(snap_path)
+            with open(snap_path, 'rb') as photo:
+                await update.message.reply_photo(photo=photo, caption="📸 *Live Host PC Screenshot*")
+            os.remove(snap_path)
         except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal mengatur volume (Pastikan pustaka `pyautogui` terpasang): {e}")
+            await update.message.reply_text(f"🚨 Gagal screenshot (Pastikan pyautogui terinstal): {e}")
     else:
-        await update.message.reply_text("🚨 Argumen perintah `/pc` kurang lengkap atau tidak valid.")
+        await update.message.reply_text("🚨 Argumen perintah `/pc` tidak valid.")
 
 async def vision_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler /vision [instruksi] untuk memicu mata AI Watcher"""
