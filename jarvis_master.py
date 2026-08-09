@@ -20,6 +20,7 @@ import sys
 import traceback
 import base64
 import edge_tts
+import cv2
 from PIL import Image
 from bs4 import BeautifulSoup
 from google import genai
@@ -445,38 +446,30 @@ async def computer_vision_snapshot_analysis(prompt_instruction: str = "Deskripsi
     """Mengambil frame dari webcam lokal dan menganalisisnya dengan Gemini Multimodal"""
     print("👁️ [COMPUTER VISION] Mengakses lensa kamera lokal...")
     try:
-        import cv2
-        
         # Buka kamera default (0 = Webcam utama)
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             return "🚨 Gagal mengakses lensa kamera (Webcam tidak ditemukan atau sedang digunakan aplikasi lain)."
 
         ret, frame = cap.read()
-        cap.release() # Langsung lepaskan kamera agar tidak nyangkut
+        cap.release()
 
         if not ret:
             return "🚨 Gagal mengambil frame gambar dari kamera."
 
-        # Simpan frame sementara sebagai file gambar
         snap_filename = f"vision_snap_{int(time.time())}.jpg"
         cv2.imwrite(snap_filename, frame)
 
-        # Baca file gambar ke dalam bentuk bytes untuk dikirim ke Gemini
         with open(snap_filename, "rb") as img_file:
             img_bytes = img_file.read()
 
-        # Analisis menggunakan fungsi multimodal Jarvis yang sudah ada
         analysis_result = ask_jarvis_with_image(img_bytes, prompt_instruction)
 
-        # Hapus file sampah sementara
         if os.path.exists(snap_filename):
             os.remove(snap_filename)
 
         return analysis_result
 
-    except ImportError:
-        return "⚠️ Pustaka `opencv-python` belum terpasang di environment host. Ketik `pip install opencv-python` di terminal."
     except Exception as e:
         print(f"🚨 [COMPUTER VISION ERROR] {e}")
         return f"🚨 Terjadi kesalahan sistem penglihatan komputer: {e}"
