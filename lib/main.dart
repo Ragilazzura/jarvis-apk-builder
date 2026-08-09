@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:audioplayers/audioplayers.dart'; // Kembali menggunakan pemutar audio bytes
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(const StarkHUDApp());
@@ -14,7 +14,7 @@ class StarkHUDApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'J.A.R.V.I.S. Stark HUD',
+      title: 'J.A.R.V.I.S. Stark HUD Mega-Core',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0A0F1D),
@@ -42,11 +42,20 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
   final List<Map<String, String>> _messages = [];
   bool _isLoading = false;
 
-  // Inisialisasi Audio Player untuk memutar suara dari server
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final String serverUrl = "https://worker-production-792b.up.railway.app";
 
-  // URL Railway backend Jarvis
-  final String serverUrl = "https://worker-production-792b.up.railway.app/chat";
+  @override
+  void initState() {
+    super.initState();
+    _addJarvisMessage("Stark HUD Mega-Core Online. At your service, Boss.");
+  }
+
+  void _addJarvisMessage(String text) {
+    setState(() {
+      _messages.add({"sender": "jarvis", "text": text});
+    });
+  }
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
@@ -60,7 +69,7 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse(serverUrl),
+        Uri.parse("$serverUrl/chat"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"message": text, "is_voice_input": false}),
       );
@@ -69,30 +78,31 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
         final data = jsonDecode(response.body);
         String replyText = data["reply"] ?? "Protocol executed, Boss.";
 
-        setState(() {
-          _messages.add({"sender": "jarvis", "text": replyText});
-        });
+        _addJarvisMessage(replyText);
 
-        // 🟢 PUTAR AUDIO DARI SERVER (gTTS Base64)
         if (data["audio_base64"] != null && data["audio_base64"].isNotEmpty) {
-          Uint8List audioBytes = base64Decode(data["audio_base64"]);
-          await _audioPlayer.play(BytesSource(audioBytes));
+          try {
+            Uint8List audioBytes = base64Decode(data["audio_base64"]);
+            await _audioPlayer.stop();
+            await _audioPlayer.play(BytesSource(audioBytes));
+          } catch (audioErr) {
+            print("Audio Playback Error: $audioErr");
+          }
         }
-
       } else {
-        setState(() {
-          _messages.add({"sender": "jarvis", "text": "🚨 Connection failed to Stark Mainframe."});
-        });
+        _addJarvisMessage("🚨 Connection failed to Stark Mainframe.");
       }
     } catch (e) {
-      setState(() {
-        _messages.add({"sender": "jarvis", "text": "🚨 Network error: $e"});
-      });
+      _addJarvisMessage("🚨 Network error: $e");
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  void _executeQuickCommand(String command) {
+    _sendMessage(command);
   }
 
   @override
@@ -106,16 +116,39 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          "J.A.R.V.I.S. // STARK HUD",
-          style: TextStyle(letterSpacing: 2, fontSize: 16, color: Color(0xFF00E5FF), fontWeight: FontWeight.bold),
+          "J.A.R.V.I.S. // MEGA-HUD",
+          style: TextStyle(letterSpacing: 2, fontSize: 15, color: Color(0xFF00E5FF), fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF111827),
         elevation: 4,
-        shadowColor: const Color(0xFF00E5FF).withOpacity(0.3),
+        shadowColor: const Color(0xFF00E5FF).withValues(alpha: 0.3),
         centerTitle: true,
       ),
       body: Column(
         children: [
+          // 🎛️ PANEL KONTROL PINTASAN LENGKAP
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            color: const Color(0xFF111827).withValues(alpha: 0.9),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildQuickButton("📊 Status", "Cek status kesehatan sistem server sekarang"),
+                  const SizedBox(width: 8),
+                  _buildQuickButton("🧠 Journal", "Tampilkan jurnal aktivitas harian sistem"),
+                  const SizedBox(width: 8),
+                  _buildQuickButton("🔒 Lockdown", "Aktifkan atau cek status lockdown sistem"),
+                  const SizedBox(width: 8),
+                  _buildQuickButton("🛰️ Sentinel", "Jalankan pengecekan uptime server"),
+                  const SizedBox(width: 8),
+                  _buildQuickButton("👁️ Vision", "Periksa kondisi kamera atau visual sekitar"),
+                ],
+              ),
+            ),
+          ),
+
+          // 💬 AREA CHAT UTAMA
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -133,7 +166,7 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
                       color: isUser ? const Color(0xFF1E3A8A) : const Color(0xFF1F2937),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: isUser ? const Color(0xFF3B82F6) : const Color(0xFF00E5FF).withOpacity(0.4),
+                        color: isUser ? const Color(0xFF3B82F6) : const Color(0xFF00E5FF).withValues(alpha: 0.4),
                         width: 1,
                       ),
                     ),
@@ -157,17 +190,31 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
               child: LinearProgressIndicator(color: Color(0xFF00E5FF)),
             ),
 
+          // ⌨️ INPUT COMMAND & MIC BUTTON
           Container(
             padding: const EdgeInsets.all(12),
             color: const Color(0xFF111827),
             child: Row(
               children: [
+                // Tombol Mikrofon Cepat (Simulasi Voice Input)
+                IconButton(
+                  onPressed: () {
+                    _sendMessage("Berikan laporan status sistem singkat, Bos.");
+                  },
+                  icon: const Icon(Icons.mic, color: Color(0xFF00E5FF)),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFF0A0F1D),
+                    padding: const EdgeInsets.all(12),
+                    side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.3)),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _controller,
                     style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
                     decoration: InputDecoration(
-                      hintText: "Enter command...",
+                      hintText: "Enter command or ask Jarvis...",
                       hintStyle: TextStyle(color: Colors.grey.shade600),
                       filled: true,
                       fillColor: const Color(0xFF0A0F1D),
@@ -198,6 +245,20 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildQuickButton(String label, String command) {
+    return ElevatedButton(
+      onPressed: () => _executeQuickCommand(command),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1F2937),
+        foregroundColor: const Color(0xFF00E5FF),
+        side: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.3)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold),
+      ),
+      child: Text(label),
     );
   }
 }
