@@ -19,12 +19,12 @@ import networkx as nx
 import sys
 import traceback
 import base64
-import edge_tts
 try:
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
+from gtts import gTTS
 from PIL import Image
 from bs4 import BeautifulSoup
 from google import genai
@@ -54,7 +54,6 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
-VOICE_ACTOR = "id-ID-ArdiNeural"
 MODEL_NAME = "gemini-3.6-flash"
 
 # Status Keamanan Stark Protocol
@@ -173,7 +172,6 @@ def get_all_memories() -> str:
 # PROJECT T.A.C.H.I.: AUTO-JOURNALING ENGINE
 # ==========================================
 def generate_daily_journal_job():
-    """Fungsi otomatis jam 23:59: Membaca aktivitas hari ini & membuat Jurnal Rekap"""
     if IS_LOCKDOWN: return
 
     print("🧠 [T.A.C.H.I.] Mengompilasi Jurnal Harian Aktivitas Proyek Bos...")
@@ -214,7 +212,6 @@ Tulis dengan gaya bahasa Jarvis yang berkelas, padat, dan panggil "Bos".
 # STARK INTRUSION & SECURITY PROTOCOL
 # ==========================================
 def send_security_alert(intruder_id: str, message_text: str):
-    """Mengirim peringatan penyusupan langsung ke HP Bos"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
@@ -342,77 +339,29 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
         return f"🚨 Error membaca gambar: {e}"
 
 # ==========================================
-# PROTOCOL "LEGION" (MULTI-AGENT SUB-TASKING)
+# VOICE & CODE AGENT ENGINES (MENGGUNAKAN GTTS YANG STABIL)
 # ==========================================
-def legion_sub_agent_task(agent_type: str, task_prompt: str):
-    print(f"🤖 [LEGION PROTOCOL] Sub-Agent ({agent_type}) mulai bekerja...")
-    
-    agent_instructions = {
-        "research": "Kamu adalah Sub-Agent Riset. Lakukan analisis mendalam dan berikan laporan ringkas.",
-        "coder": "Kamu adalah Sub-Agent Developer. Fokus buatkan kode program dan solusinya.",
-        "guard": "Kamu adalah Sub-Agent Keamanan. Analisis risiko dan kesehatan sistem."
-    }
-    
-    prefix = agent_instructions.get(agent_type, "Kamu adalah Sub-Agent Jarvis.")
-    full_prompt = f"{prefix}\nTugas: {task_prompt}"
-    
-    result_text = ask_jarvis(full_prompt)
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": f"🤖 *PROTOCOL LEGION: SUB-AGENT ({agent_type.upper()}) FINISHED*\n\n{result_text}"
-    }
+def generate_gtts_base64_sync(text: str, lang_code: str = 'id') -> str:
+    """Fungsi pembantu gTTS untuk menghasilkan base64 audio yang natural & stabil"""
     try:
-        requests.post(url, json=payload)
+        clean_txt = re.sub(r'[*_`#~\[\]\(\)]', '', text)[:400]
+        if not clean_txt.strip():
+            clean_txt = "At your service, Boss."
+            
+        tts = gTTS(text=clean_txt, lang=lang_code, slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return base64.b64encode(fp.read()).decode('utf-8')
     except Exception as e:
-        print(f"[!] Gagal kirim laporan Sub-Agent: {e}")
+        print(f"[!] gTTS Base64 Error: {e}")
+        return ""
 
-def autonomous_research(query: str, max_results: int = 4) -> str:
-    print(f"🛰️ [FRIDAY AGENT] Melakukan riset web mandiri untuk: '{query}'...")
-    search_results = []
-    
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
-            for r in results:
-                title = r.get('title', '')
-                snippet = r.get('body', '')
-                link = r.get('href', '')
-                search_results.append(f"• **{title}**\n  {snippet}\n  Link: {link}")
-    except Exception as e:
-        print(f"[!] DuckDuckGo Search Error: {e}")
-        return f"Gagal melakukan pencarian web: {e}"
-
-    if not search_results:
-        return "Tidak ditemukan hasil yang relevan di web, Bos."
-
-    raw_research_data = "\n\n".join(search_results)
-    
-    prompt = f"""
-Kamu adalah FRIDAY, Sub-Agent Riset Otonom milik Bos.
-Berikut adalah data hasil pencarian web terbaru mengenai topik: "{query}"
-
---- DATA HASIL PENCARIAN WEB ---
-{raw_research_data}
---- END DATA ---
-
-Tugasmu:
-1. Buatkan ringkasan riset yang sangat jelas, padat, profesional, dan langsung ke inti informasi.
-2. Cantumkan poin-poin penting utama.
-3. Sebutkan sumber link referensi jika relevan.
-Jawab dengan gaya bahasa Jarvis yang luwes dan panggil "Bos".
-"""
-    return ask_jarvis(prompt)
-
-# ==========================================
-# VOICE & CODE AGENT ENGINES
-# ==========================================
 async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
     try:
         clean_speech = re.sub(r'[^\w\s,?!.]', '', text)
-        communicate = edge_tts.Communicate(clean_speech, VOICE_ACTOR)
-        await communicate.save(output_path)
+        tts = gTTS(text=clean_speech, lang='id', slow=False)
+        tts.save(output_path)
         return output_path
     except Exception as e:
         return ""
@@ -447,7 +396,6 @@ def generate_and_test_code(prompt_request: str, target_filename: str = "generate
     return False, f"🚨 Code Agent gagal setelah {max_attempts}x percobaan.", target_filename
 
 async def computer_vision_snapshot_analysis(prompt_instruction: str = "Deskripsikan apa yang terlihat di depan kamera saat ini secara detail, Bos.") -> str:
-    """Mengambil frame dari webcam lokal dan menganalisisnya dengan Gemini Multimodal"""
     if not CV2_AVAILABLE:
         return "⚠️ Modul OpenCV tidak tersedia di environment server ini. Fitur /vision khusus untuk dijalankan di host PC lokal, Bos."
 
@@ -614,22 +562,15 @@ def veronica_global_exception_handler(exctype, value, tb):
 sys.excepthook = veronica_global_exception_handler
 
 async def execute_browser_automation(url: str, action: str = "screenshot", form_data: dict = None) -> tuple[bool, str, str]:
-    """
-    Mengeksekusi aksi browser headless otomatis menggunakan Playwright.
-    action: 'screenshot' | 'extract_text' | 'click_and_capture'
-    """
     print(f"🌐 [FRIDAY BROWSER] Starting headless session for: {url} (Action: {action})...")
     
     try:
         async with async_playwright() as p:
-            # Jalankan browser Chromium tanpa GUI (Headless)
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = await context.new_page()
-            
-            # Buka URL target
             await page.goto(url, timeout=30000, wait_until="networkidle")
             
             if action == "screenshot":
@@ -645,7 +586,6 @@ async def execute_browser_automation(url: str, action: str = "screenshot", form_
                 return True, f"📄 *HASIL EKSTRAKSI TEKS WEB:*\n\n{clean_content}", ""
 
             elif action == "fill_form" and form_data:
-                # Contoh pengisian form dinamis
                 for selector, value in form_data.items():
                     await page.fill(selector, value)
                 
@@ -664,24 +604,20 @@ async def execute_browser_automation(url: str, action: str = "screenshot", form_
 # ==========================================
 # PROJECT ULTRON-SENTINEL: UPTIME & HEALTH MONITOR
 # ==========================================
-# Daftar URL / Endpoint yang ingin dipantau 24/7 oleh Jarvis
 MONITORED_TARGETS = [
     {"name": "Railway FastAPI Server", "url": "https://worker-production-792b.up.railway.app"}
 ]
 
 def ultron_sentinel_ping_job():
-    """Fungsi otomatis yang mengecek kesehatan server & API setiap 15 menit"""
     if IS_LOCKDOWN: return
 
     print("🛰️ [ULTRON-SENTINEL] Running 24/7 Uptime & Endpoint Health Check...")
-    
     failed_services = []
     
     for target in MONITORED_TARGETS:
         name = target["name"]
         url = target["url"]
         
-        # Abaikan jika URL masih placeholder
         if "xxxx" in url: continue
 
         try:
@@ -696,7 +632,6 @@ def ultron_sentinel_ping_job():
         except Exception as e:
             failed_services.append(f"• *{name}*: Unreachable ({e})")
 
-    # Jika ada server yang down, kirim Alert Alarm ke Telegram
     if failed_services:
         alert_body = "\n".join(failed_services)
         alarm_msg = f"🚨 *ULTRON-SENTINEL ALARM: SERVICE DOWN DETECTED!*\n\n{alert_body}\n\n*Action Required:* Mohon periksa server/koneksi Bos!"
@@ -759,21 +694,6 @@ def read_root():
         "time": str(datetime.datetime.now())
     }
 
-async def generate_tts_base64(text: str) -> str:
-    try:
-        clean_txt = re.sub(r'[*_`#~\[\]\(\)]', '', text)[:300]
-        communicate = edge_tts.Communicate(clean_txt, "id-ID-ArdiNeural")
-        
-        audio_bytes = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_bytes += chunk["data"]
-                
-        return base64.b64encode(audio_bytes).decode('utf-8')
-    except Exception as e:
-        print(f"[!] TTS Base64 Generation Error: {e}")
-        return ""
-
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
@@ -792,17 +712,17 @@ async def chat_endpoint(request: ChatRequest):
     wants_voice = any(kw in msg_lower for kw in voice_triggers)
     wants_text = any(kw in msg_lower for kw in text_triggers)
 
-    # 🧠 STRICT LOGIC:
+    # 🧠 STRICT LOGIC DENGAN GTTS STABIL:
     if request.is_voice_input:
         if wants_text:
             return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
         else:
-            audio_b64 = await generate_tts_base64(reply_text)
-            return {"status": "success", "reply": "", "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
+            audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
+            return {"status": "success", "reply": reply_text, "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
     else:
         if wants_voice:
-            audio_b64 = await generate_tts_base64(reply_text)
-            return {"status": "success", "reply": "", "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
+            audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
+            return {"status": "success", "reply": reply_text, "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
         else:
             return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
 
@@ -844,20 +764,12 @@ async def websocket_voice_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # Menerima chunk audio (bytes) dari klien (Flutter / Klien Audio)
             data = await websocket.receive_bytes()
-            
-            if not data:
-                continue
+            if not data: continue
                 
-            print(f"🎙️ [LIVE VOICE] Menerima data audio stream ({len(data)} bytes)...")
-            
-            # Simulasi / Proses Audio Stream dengan Gemini Multimodal / Edge-TTS
-            # (Untuk tahap awal, kita kirim balik sinyal echo atau respons audio terproses)
             response_text = ask_jarvis("Halo Bos, saya mendengarkan stream suara Anda.")
-            audio_b64 = await generate_tts_base64(response_text)
+            audio_b64 = generate_gtts_base64_sync(response_text, lang='id')
             
-            # Kirim kembali respons audio base64 ke klien secara real-time
             await websocket.send_json({
                 "status": "success",
                 "reply": response_text,
@@ -868,10 +780,8 @@ async def websocket_voice_endpoint(websocket: WebSocket):
         print("🎙️ [LIVE VOICE] Klien terputus dari WebSocket.")
     except Exception as e:
         print(f"🚨 [LIVE VOICE ERROR] {e}")
-        try:
-            await websocket.close()
-        except:
-            pass
+        try: await websocket.close()
+        except: pass
 
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
@@ -926,7 +836,6 @@ async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, reply_text)
 
 async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler pesan suara (Voice Note) otomatis dari Bos"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID:
         send_security_alert(chat_id, "[Voice Note Intrusion Attempt]")
@@ -1302,7 +1211,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         await menu_command_handler(update, context)
 
 async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler perintah /web <url> [action: snap/text]"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1339,7 +1247,6 @@ async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         
         if success and file_path and os.path.exists(file_path):
-            # Kirim foto screenshot ke Telegram
             photo_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
             with open(file_path, 'rb') as photo:
                 requests.post(photo_url, data={"chat_id": ALLOWED_CHAT_ID, "caption": message}, files={"photo": photo})
@@ -1351,19 +1258,13 @@ async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     threading.Thread(target=run_async_browser, daemon=True).start()
 
 async def sentinel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /sentinel untuk memicu tes kesehatan server secara langsung"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
     await update.message.reply_text("🛰️ *ULTRON-SENTINEL sedang memindai kesehatan seluruh endpoint & server...*")
-
-    def run_async_sentinel():
-        ultron_sentinel_ping_job()
-        
-    threading.Thread(target=run_async_sentinel, daemon=True).start()
+    threading.Thread(target=ultron_sentinel_ping_job, daemon=True).start()
 
 async def recall_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /recall <topik> untuk mencari kembali memori/pengetahuan masa lalu"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1374,14 +1275,12 @@ async def recall_command_handler(update: Update, context: ContextTypes.DEFAULT_T
     query_topic = " ".join(context.args)
     await update.message.reply_text(f"🧠 *M.I.N.D. PALACE:* Memindai arsip memori untuk topik `{query_topic}`...")
 
-    # Cari dari ChromaDB vector collection
     retrieved_memory = search_vector_db(query_topic, n_results=5)
     
     if not retrieved_memory or "PENGETAHUAN TERKAIT" not in retrieved_memory:
         await update.message.reply_text(f"🔍 Maaf Bos, tidak ditemukan arsip memori yang cocok dengan topik `{query_topic}`.")
         return
 
-    # Minta Gemini merangkum hasil memori lama tersebut agar enak dibaca
     prompt = f"""
 Kamu adalah M.I.N.D. PALACE Engine milik Jarvis.
 Berikut adalah data arsip memori lama yang ditemukan dari database terkait topik "{query_topic}":
@@ -1395,7 +1294,6 @@ Rangkum dan jelaskan kembali informasi tersebut secara padat, jelas, dan bernada
     await safe_reply(update, f"📖 *M.I.N.D. PALACE MEMORY RECALL*\n\n{summary_result}")
 
 async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /pc <aksi> untuk kontrol komputer lokal"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1418,7 +1316,6 @@ async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if action == "lock":
         try:
-            # Perintah khusus Windows untuk mengunci layar
             if os.name == 'nt':
                 subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=True)
                 await update.message.reply_text("🔒 Layar PC berhasil dikunci, Bos!")
@@ -1460,7 +1357,6 @@ async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("🚨 Aksi PC tidak dikenali. Ketik `/pc` untuk melihat daftar perintah.")
 
 async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /pc advance untuk kontrol aplikasi dan file lokal dengan data presisi"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1485,17 +1381,14 @@ async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFA
 
     if sub_action == "info":
         try:
-            # Mengambil data RAM secara akurat
             mem = psutil.virtual_memory()
             total_ram = round(mem.total / (1024**3), 2)
             used_ram = round(mem.used / (1024**3), 2)
             
-            # Mengambil data Disk utama
             disk = psutil.disk_usage('/')
             total_disk = round(disk.total / (1024**3), 2)
             used_disk = round(disk.used / (1024**3), 2)
 
-            # Cek status baterai dengan aman
             battery = psutil.sensors_battery()
             if battery:
                 plug_status = "Mengisi Daya (Charging)" if battery.power_plugged else "Menggunakan Baterai"
@@ -1540,7 +1433,6 @@ async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text("🚨 Argumen perintah `/pc` tidak valid.")
 
 async def vision_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler /vision [instruksi] untuk memicu mata AI Watcher"""
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 

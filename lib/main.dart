@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_tts/flutter_tts.dart'; // Mesin Suara Lokal HP
+import 'dart:typed_data';
+import 'package:audioplayers/audioplayers.dart'; // Kembali menggunakan pemutar audio bytes
 
 void main() {
   runApp(const StarkHUDApp());
@@ -41,25 +42,11 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
   final List<Map<String, String>> _messages = [];
   bool _isLoading = false;
 
-  // Inisialisasi Flutter TTS (Pita Suara HP)
-  final FlutterTts _flutterTts = FlutterTts();
+  // Inisialisasi Audio Player untuk memutar suara dari server
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // URL Railway backend Jarvis
   final String serverUrl = "https://worker-production-792b.up.railway.app/chat";
-
-  @override
-  void initState() {
-    super.initState();
-    _initTts();
-  }
-
-  // Pengaturan Suara (Bahasa Indonesia & Kecepatan)
-  Future<void> _initTts() async {
-    await _flutterTts.setLanguage("en-US"); // Set bahasa Indonesia
-    await _flutterTts.setSpeechRate(0.52);  // Kecepatan normal/stabil
-    await _flutterTts.setVolume(1.0);      // Volume maksimal
-    await _flutterTts.setPitch(0.8);       // Nada suara standar
-  }
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
@@ -80,23 +67,26 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        String replyText = data["reply"] ?? "Perintah diterima, Bos.";
+        String replyText = data["reply"] ?? "Protocol executed, Boss.";
 
         setState(() {
           _messages.add({"sender": "jarvis", "text": replyText});
         });
 
-        // 🟢 EKSEKUSI SUARA LOKAL: HP Membacakan Teks dari Server secara Natural
-        await _flutterTts.speak(replyText);
+        // 🟢 PUTAR AUDIO DARI SERVER (gTTS Base64)
+        if (data["audio_base64"] != null && data["audio_base64"].isNotEmpty) {
+          Uint8List audioBytes = base64Decode(data["audio_base64"]);
+          await _audioPlayer.play(BytesSource(audioBytes));
+        }
 
       } else {
         setState(() {
-          _messages.add({"sender": "jarvis", "text": "🚨 Gagal terhubung ke server utama Stark."});
+          _messages.add({"sender": "jarvis", "text": "🚨 Connection failed to Stark Mainframe."});
         });
       }
     } catch (e) {
       setState(() {
-        _messages.add({"sender": "jarvis", "text": "🚨 Error koneksi jaringan: $e"});
+        _messages.add({"sender": "jarvis", "text": "🚨 Network error: $e"});
       });
     } finally {
       setState(() {
@@ -107,7 +97,7 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
 
   @override
   void dispose() {
-    _flutterTts.stop();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -177,7 +167,7 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
                     controller: _controller,
                     style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
                     decoration: InputDecoration(
-                      hintText: "Masukkan perintah untuk Jarvis...",
+                      hintText: "Enter command...",
                       hintStyle: TextStyle(color: Colors.grey.shade600),
                       filled: true,
                       fillColor: const Color(0xFF0A0F1D),
@@ -187,7 +177,7 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
                         borderSide: BorderSide.none,
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8) ?? BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 1),
                       ),
                     ),
