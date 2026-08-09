@@ -55,10 +55,10 @@ class _HUDHomeScreenState extends State<HUDHomeScreen> {
 
   // Pengaturan Suara (Bahasa Indonesia & Kecepatan)
   Future<void> _initTts() async {
-    await _flutterTts.setLanguage("id-ID"); // Set bahasa Indonesia
-    await _flutterTts.setSpeechRate(0.5);  // Kecepatan normal/stabil
+    await _flutterTts.setLanguage("en-US"); // Set bahasa Indonesia
+    await _flutterTts.setSpeechRate(0.52);  // Kecepatan normal/stabil
     await _flutterTts.setVolume(1.0);      // Volume maksimal
-    await _flutterTts.setPitch(1.0);       // Nada suara standar
+    await _flutterTts.setPitch(0.8);       // Nada suara standar
   }
 
   Future<void> _sendMessage(String text) async {
