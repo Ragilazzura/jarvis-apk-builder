@@ -193,7 +193,7 @@ class _StarkHudScreenState extends State<StarkHudScreen> {
                 boxShadow: [
                   BoxShadow(
                     color: (_isOnline ? const Color(0xFF00F0FF) : Colors.red)
-                        .withOpacity(0.8),
+                        .withValues(alpha: 0.8),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),
@@ -257,7 +257,7 @@ class _StarkHudScreenState extends State<StarkHudScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF121929),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF00F0FF).withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFF00F0FF).withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -309,7 +309,7 @@ class _StarkHudScreenState extends State<StarkHudScreen> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isJarvis
-                ? const Color(0xFF00F0FF).withOpacity(0.4)
+                ? const Color(0xFF00F0FF).withValues(alpha: 0.4)
                 : Colors.transparent,
           ),
         ),

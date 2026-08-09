@@ -20,7 +20,11 @@ import sys
 import traceback
 import base64
 import edge_tts
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 from PIL import Image
 from bs4 import BeautifulSoup
 from google import genai
@@ -444,9 +448,11 @@ def generate_and_test_code(prompt_request: str, target_filename: str = "generate
 
 async def computer_vision_snapshot_analysis(prompt_instruction: str = "Deskripsikan apa yang terlihat di depan kamera saat ini secara detail, Bos.") -> str:
     """Mengambil frame dari webcam lokal dan menganalisisnya dengan Gemini Multimodal"""
+    if not CV2_AVAILABLE:
+        return "⚠️ Modul OpenCV tidak tersedia di environment server ini. Fitur /vision khusus untuk dijalankan di host PC lokal, Bos."
+
     print("👁️ [COMPUTER VISION] Mengakses lensa kamera lokal...")
     try:
-        # Buka kamera default (0 = Webcam utama)
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             return "🚨 Gagal mengakses lensa kamera (Webcam tidak ditemukan atau sedang digunakan aplikasi lain)."
