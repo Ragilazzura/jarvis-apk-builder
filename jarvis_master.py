@@ -667,8 +667,7 @@ async def execute_browser_automation(url: str, action: str = "screenshot", form_
 # ==========================================
 # Daftar URL / Endpoint yang ingin dipantau 24/7 oleh Jarvis
 MONITORED_TARGETS = [
-    {"name": "Railway FastAPI Server", "url": "https://worker-production-792b.up.railway.app"},
-    {"name": "GitHub Repository", "url": "https://github.com/Ragilazzura/jarvis-apk-builder"}
+    {"name": "Railway FastAPI Server", "url": "https://worker-production-792b.up.railway.app"}
 ]
 
 def ultron_sentinel_ping_job():
