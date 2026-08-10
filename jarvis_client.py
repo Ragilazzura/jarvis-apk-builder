@@ -7,6 +7,8 @@ import subprocess
 import requests
 import psutil
 from PIL import ImageGrab
+import docx
+from pypdf import PdfReader, PdfWriter
 
 # ==========================================
 # KONFIGURASI JEMBATAN STARK HYBRID
@@ -96,14 +98,14 @@ def scan_and_index_documents():
 def process_command(data):
     cmd_type = data.get("type")
     
-    # 1. SCREEN VISION
+    # 1. 👁️ SCREEN VISION
     if cmd_type == "SCREEN_VISION":
         prompt_user = data.get("prompt", "Analisis layar PC ini, Bos.")
         print("👁️ [VISION] Mengambil screenshot layar...")
         img_b64 = take_screenshot_base64()
         return {"type": "VISION_RESPONSE", "image_base64": img_b64, "prompt": prompt_user}
 
-    # 2. MEDIA CONTROL
+    # 2. 📻 MEDIA CONTROL
     elif cmd_type == "MEDIA_CONTROL":
         action = data.get("action")
         keys = {"vol_up": 175, "vol_down": 174, "vol_mute": 173, "play_pause": 179}
@@ -111,7 +113,7 @@ def process_command(data):
             execute_windows_command(f"powershell -c \"(new-object -com wscript.shell).SendKeys([char]{keys[action]})\"")
         return {"output": f"Media Action '{action}' executed."}
 
-    # 3. SHUTDOWN CONTROL
+    # 3. ⏰ POWER & SECURITY CONTROL
     elif cmd_type == "SHUTDOWN_TIMER":
         minutes = data.get("minutes", 1)
         execute_windows_command(f"shutdown /s /t {minutes * 60}")
@@ -120,12 +122,44 @@ def process_command(data):
     elif cmd_type == "SHUTDOWN_CANCEL":
         execute_windows_command("shutdown /a")
         return {"output": "Penjadwalan shutdown dibatalkan."}
+        
+    elif cmd_type == "LOCK_SCREEN":
+        print("🔒 [SECURITY] Mengunci layar PC...")
+        execute_windows_command("rundll32.exe user32.dll,LockWorkStation")
+        return {"output": "Layar PC berhasil dikunci oleh E.D.I.T.H."}
 
-    # 4. START DOCUMENT INDEXER
+    # 4. 📂 DOCUMENT & APP ENGINE
     elif cmd_type == "START_FILE_INDEXING":
         scan_and_index_documents()
         return {"output": "Pemindaian dan pengindeksan dokumen selesai."}
+        
+    elif cmd_type == "WORD_ACTION":
+        # Contoh eksekusi dummy, bisa dikembangkan menerima payload spesifik
+        print("📝 [DOC ENGINE] Memproses dokumen Word...")
+        res = handle_word_document("create_or_append", "jarvis_notes.docx", "Catatan otomatis dari Jarvis HUD.")
+        return {"output": res}
+        
+    elif cmd_type == "CHECK_RUNNING_APPS":
+        print("📊 [APP CHECKER] Memeriksa aplikasi aktif...")
+        res = check_running_apps()
+        return {"output": f"Aplikasi berjalan:\n{res[:1000]}"}
 
+    # 5. 📧 COMMUNICATION ENGINE
+    elif cmd_type == "SEND_EMAIL":
+        print("📧 [COMMUNICATION] Menyiapkan transmisi email...")
+        target = data.get("target", "user@example.com")
+        msg = data.get("message", "Pesan dari Jarvis.")
+        res = send_email_smtp(target, "J.A.R.V.I.S Automated Protocol", msg)
+        return {"output": res}
+        
+    elif cmd_type == "SEND_WHATSAPP":
+        print("💬 [COMMUNICATION] Menyiapkan transmisi WhatsApp...")
+        target = data.get("target", "1234567890")
+        msg = data.get("message", "Pesan dari Jarvis.")
+        res = send_whatsapp_web(target, msg)
+        return {"output": res}
+
+    # 6. 🤖 AUTONOMOUS TASK FORCE
     elif cmd_type == "TASK_FORCE_CHAIN":
         chain = data.get("chain", [])
         task_name = data.get("task_name", "Autonomous Task")
@@ -142,7 +176,6 @@ def process_command(data):
             execution_logs.append(f"Step {step_num} ({desc}):\n{out.strip()}\n")
             time.sleep(1)
 
-        # Laporkan rangkuman eksekusi kembali ke Telegram/Cloud
         full_report = f"✅ *TASK FORCE COMPLETED: {task_name}*\n\n" + "\n".join(execution_logs)
         try:
             requests.post(
@@ -152,10 +185,90 @@ def process_command(data):
             )
         except:
             pass
-
         return {"output": f"Rantai eksekusi '{task_name}' sukses diselesaikan."}
+        
+    return {"output": f"Unknown command: {cmd_type}"}
 
-    return {"output": "Unknown command"}
+# ==========================================
+# 1. OFFICE & DOCUMENT ENGINE (WORD & PDF)
+# ==========================================
+def handle_word_document(action, file_path, content=""):
+    """Membaca, menulis, atau mengedit file .docx"""
+    try:
+        if action == "read":
+            doc = docx.Document(file_path)
+            full_text = [p.text for p in doc.paragraphs]
+            return "\n".join(full_text)[:3000]
+
+        elif action == "create_or_append":
+            if os.path.exists(file_path):
+                doc = docx.Document(file_path)
+            else:
+                doc = docx.Document()
+            doc.add_paragraph(content)
+            doc.save(file_path)
+            return f"Dokumen Word '{os.path.basename(file_path)}' berhasil diperbarui, Bos!"
+            
+    except Exception as e:
+        return f"Error Word Document: {e}"
+
+def handle_pdf_document(action, file_path, content=""):
+    """Membaca isi file PDF"""
+    try:
+        if action == "read":
+            reader = PdfReader(file_path)
+            text = ""
+            for page in reader.pages[:5]:  # Ambil 5 halaman pertama
+                text += page.extract_text() or ""
+            return text[:3000]
+    except Exception as e:
+        return f"Error PDF Document: {e}"
+
+# ==========================================
+# 2. COMMUNICATION ENGINE (EMAIL & WHATSAPP)
+# ==========================================
+def send_email_smtp(to_email, subject, body_text):
+    """Mengirim Email otomatis via SMTP"""
+    sender_email = os.getenv("STARK_EMAIL_USER", "your_email@gmail.com")
+    sender_password = os.getenv("STARK_EMAIL_PASS", "your_app_password")
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body_text, 'plain'))
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return f"Email berhasil dikirim ke {to_email}, Bos!"
+    except Exception as e:
+        return f"Gagal mengirim email: {e}"
+
+def send_whatsapp_web(phone_number, message):
+    """Mengirim pesan WhatsApp via Web/Protocol"""
+    try:
+        import pywhatkit as pwk
+        # Mengirim WA instant
+        pwk.sendwhatmsg_instantly(f"+{phone_number}", message, wait_time=10, tab_close=True)
+        return f"Pesan WhatsApp terkirim ke {phone_number}!"
+    except Exception as e:
+        return f"Error WA Sender: {e}"
+
+# ==========================================
+# 3. APP & SYSTEM CONTROLLER (PC)
+# ==========================================
+def check_running_apps():
+    """Memeriksa aplikasi yang sedang berjalan di PC"""
+    try:
+        cmd = 'powershell -Command "Get-Process | Where-Object {$_.MainWindowTitle -ne \'\'} | Select-Object ProcessName, MainWindowTitle"'
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return res.stdout if res.stdout else "Tidak ada aplikasi aktif terdeteksi."
+    except Exception as e:
+        return f"Error checking apps: {e}"
 
 # ==========================================
 # MAIN LOOPING

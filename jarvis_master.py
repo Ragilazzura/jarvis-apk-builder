@@ -700,6 +700,33 @@ def route_natural_language_command(user_message: str) -> dict:
         LOCAL_COMMAND_QUEUE.append({"type": "START_FILE_INDEXING"})
         return {"status": "EXECUTE", "reply": "Memulai pemindaian folder kerja dan pengindeksan dokumen lokal ke ChromaDB..."}
 
+    # 📧 1. PEMICU KIRIM EMAIL
+    if "kirim email" in msg_lower or "tulis email" in msg_lower:
+        # Contoh format: "kirim email ke target@gmail.com subjek Laporan isi Halo Bos"
+        payload = {"type": "SEND_EMAIL", "raw_prompt": user_message}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {"status": "EXECUTE", "reply": "Memproses pembuatan dan pengiriman email..."}
+
+    # 💬 2. PEMICU WHATSAPP
+    elif "kirim wa" in msg_lower or "whatsapp ke" in msg_lower:
+        payload = {"type": "SEND_WHATSAPP", "raw_prompt": user_message}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {"status": "EXECUTE", "reply": "Instruksi pengiriman WhatsApp diterima, memproses pesan..."}
+
+    # 📝 3. PEMICU EDIT/BUAT DOKUMEN WORD
+    elif "tulis word" in msg_lower or "buat dokumen" in msg_lower or "edit word" in msg_lower:
+        payload = {"type": "WORD_ACTION", "raw_prompt": user_message}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {"status": "EXECUTE", "reply": "Memproses perintah dokumen Word di PC lokal..."}
+
+    # 📊 4. PEMICU CEK APLIKASI AKTIF
+    elif "cek aplikasi" in msg_lower or "aplikasi terbuka" in msg_lower or "proses pc" in msg_lower:
+        LOCAL_COMMAND_QUEUE.append({"type": "CHECK_RUNNING_APPS"})
+        return {"status": "EXECUTE", "reply": "Memindai seluruh aplikasi dan jendela yang sedang terbuka di PC..."}
+
+    # 🎨 5. PEMICU DIAGRAM GENERATOR
+    elif "buat diagram" in msg_lower or "gambar diagram" in msg_lower:
+        return {"status": "EXECUTE_DIAGRAM", "reply": "Memproses pembuatan diagram secara visual..."}
     return {"status": "CHAT_ONLY"}
 
 # ==========================================
@@ -735,6 +762,7 @@ web_app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     is_voice_input: bool = False
+    image_base64: str = None
 
 class IoTCommandRequest(BaseModel):
     device_id: str
@@ -748,65 +776,6 @@ def read_root():
         "lockdown": IS_LOCKDOWN,
         "time": str(datetime.datetime.now())
     }
-
-# 🚦 ROUTER BAHASA ALAMI (Memproses perintah PC tanpa perlu slash '/')
-def route_natural_language_command(user_message: str) -> str:
-    global LOCAL_COMMAND_QUEUE
-    msg_lower = user_message.lower()
-
-    # Pemicu Cek Kondisi PC / Hardware
-    if any(k in msg_lower for k in ["cek pc", "kondisi pc", "status pc", "hardware", "spesifikasi laptop", "pc condition"]):
-        cmd = 'powershell -Command "Get-CimInstance Win32_Processor | Select-Object Name, LoadPercentage; Get-CimInstance Win32_OperatingSystem | Select-Object FreePhysicalMemory, TotalVisibleMemorySize"'
-        LOCAL_COMMAND_QUEUE.append(cmd)
-        return "EXECUTE_PC_INFO"
-
-    # Pemicu Lock Screen PC
-    elif any(k in msg_lower for k in ["kunci pc", "kunci komputer", "lock pc", "lockscreen"]):
-        cmd = 'rundll32.exe user32.dll,LockWorkStation'
-        LOCAL_COMMAND_QUEUE.append(cmd)
-        return "EXECUTE_PC_LOCK"
-
-    if any(k in msg_lower for k in ["baca layar", "lihat layar", "periksa layar", "layar pc", "screenshot pc", "layar laptop"]):
-        payload = {"type": "SCREEN_VISION", "prompt": user_message}
-        LOCAL_COMMAND_QUEUE.append(payload)
-        return {"status": "EXECUTE", "type": "SCREEN_VISION"}
-
-    # 📻 2. Pemicu Kontrol Volume & Media
-    elif any(k in msg_lower for k in ["besarkan volume", "tambah volume", "volume naik"]):
-        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_up"})
-        return {"status": "EXECUTE", "reply": "Volume PC dinaikkan, Bos."}
-
-    elif any(k in msg_lower for k in ["kecilkan volume", "kurangi volume", "volume turun"]):
-        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_down"})
-        return {"status": "EXECUTE", "reply": "Volume PC dikurangi, Bos."}
-
-    elif any(k in msg_lower for k in ["mute pc", "matikan suara pc", "unmute pc"]):
-        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_mute"})
-        return {"status": "EXECUTE", "reply": "Status mute audio PC diubah."}
-
-    elif any(k in msg_lower for k in ["pause musik", "play musik", "pause lagu", "play lagu"]):
-        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "play_pause"})
-        return {"status": "EXECUTE", "reply": "Status pemutar media PC diperbarui."}
-
-    # ⏰ 3. Pemicu Shutdown / Matikan PC
-    elif "matikan pc" in msg_lower or "shutdown pc" in msg_lower:
-        # Cek apakah ada kata angka menit (misal: "shutdown pc 30 menit")
-        import re
-        numbers = re.findall(r'\d+', msg_lower)
-        minutes = int(numbers[0]) if numbers else 0
-        
-        if minutes > 0:
-            LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_TIMER", "minutes": minutes})
-            return {"status": "EXECUTE", "reply": f"Siap Bos. PC dijadwalkan akan otomatis mati dalam {minutes} menit."}
-        else:
-            LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_TIMER", "minutes": 1})
-            return {"status": "EXECUTE", "reply": "Protokol shutdown dikirim. PC akan mati dalam 1 menit."}
-
-    elif "batal shutdown" in msg_lower or "batalkan mati" in msg_lower:
-        LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_CANCEL"})
-        return {"status": "EXECUTE", "reply": "Penjadwalan shutdown PC berhasil dibatalkan, Bos!"}
-
-    return {"status": "CHAT_ONLY"}
 
 # ==========================================
 # PROYEK TASK FORCE: MULTI-STEP AGENT PLANNER
@@ -861,46 +830,42 @@ def trigger_task_force(req: AutonomousTaskRequest):
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
-        return {
-            "status": "error", 
-            "reply": "🔒 STARK LOCKDOWN ACTIVE.",
-            "audio_base64": ""
-        }
+        return {"status": "error", "reply": "🔒 STARK LOCKDOWN ACTIVE.", "audio_base64": ""}
     
-    # 🎯 1. Cek apakah ada perintah bahasa alami untuk PC lokal
+    # 1. JIKA ADA LAMPIRAN GAMBAR DARI HUD
+    if request.image_base64:
+        img_bytes = base64.b64decode(request.image_base64)
+        reply_text = ask_jarvis_with_image(img_bytes, request.message)
+        audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
+        return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
+
+    # 2. CEK INTENT BAHASA ALAMI
     intent = route_natural_language_command(request.message)
-    wib = pytz.timezone('Asia/Jakarta')
-    current_wib = datetime.datetime.now(wib).strftime("%H:%M WIB")
+    
+    if intent.get("status") == "EXECUTE":
+        reply_text = intent.get("reply")
+        audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
+        return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
+        
+    elif intent.get("status") == "EXECUTE_DIAGRAM":
+        # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
+        steps = [s.strip() for s in request.message.split("->")]
+        if len(steps) > 1:
+            edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
+            diagram_path = generate_system_diagram(edges)
+            if diagram_path and os.path.exists(diagram_path):
+                with open(diagram_path, "rb") as f:
+                    diag_b64 = base64.b64encode(f.read()).decode('utf-8')
+                os.remove(diagram_path)
+                reply_text = "Diagram berhasil di-render, Bos."
+                audio_b64 = generate_gtts_base64_sync(reply_text)
+                return {"status": "success", "reply": reply_text, "image_base64": diag_b64, "audio_base64": audio_b64}
+        return {"status": "success", "reply": "Gagal render diagram. Gunakan format panah (->)", "audio_base64": ""}
 
-    if intent == "EXECUTE_PC_INFO":
-        reply_text = f"Siap Bos. Instruksi cek kondisi PC dikirim ke antrean PC lokal pada jam {current_wib}. Mohon tunggu telemetry data dari E.D.I.T.H."
-    elif intent == "EXECUTE_PC_LOCK":
-        reply_text = f"Protokol penguncian layar dikirim pada jam {current_wib}. Layar laptop Bos berhasil dikunci."
-    else:
-        # Percakapan umum via Gemini API
-        reply_text = ask_jarvis(request.message)
-
-    msg_lower = request.message.lower()
-
-    voice_triggers = ["pake suara", "pakai suara", "balas suara", "pake voice", "pakai voice", "pake vn", "bicaralah"]
-    text_triggers = ["balas teks", "balas chat", "ketik aja", "tanpa suara", "tanpa voice", "gak usah suara"]
-
-    wants_voice = any(kw in msg_lower for kw in voice_triggers)
-    wants_text = any(kw in msg_lower for kw in text_triggers)
-
-    # 🧠 STRICT LOGIC DENGAN GTTS STABIL:
-    if request.is_voice_input:
-        if wants_text:
-            return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
-        else:
-            audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
-            return {"status": "success", "reply": reply_text, "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
-    else:
-        if wants_voice:
-            audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
-            return {"status": "success", "reply": reply_text, "audio_base64": audio_b64, "timestamp": str(datetime.datetime.now())}
-        else:
-            return {"status": "success", "reply": reply_text, "audio_base64": "", "timestamp": str(datetime.datetime.now())}
+    # 3. CHAT BIASA VIA GEMINI
+    reply_text = ask_jarvis(request.message)
+    audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
+    return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
 
 @web_app.get("/status")
 def status_endpoint():
@@ -1062,46 +1027,50 @@ async def global_fastapi_exception_handler(request: Request, exc: Exception):
 @web_app.websocket("/ws/stream_chat")
 async def websocket_stream_chat_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("⚡ [LOW-LATENCY STREAM] HUD Client connected via High-Speed Stream.")
+    print("⚡ [LOW-LATENCY STREAM] HUD Client connected.")
     
     try:
         while True:
-            # Menerima pesan teks/instruksi dari Flutter HUD
             data = await websocket.receive_text()
-            if not data:
+            if not data: continue
+
+            # CEK INTENT LOKAL DULU SEBELUM KE GEMINI
+            intent = route_natural_language_command(data)
+            if intent.get("status") == "EXECUTE":
+                reply_text = intent.get("reply")
+                await websocket.send_json({"type": "text_chunk", "content": reply_text})
+                audio_b64 = generate_gtts_base64_sync(reply_text)
+                await websocket.send_json({"type": "stream_end", "audio_base64": audio_b64})
+                continue
+                
+            elif intent.get("status") == "EXECUTE_DIAGRAM":
+                await websocket.send_json({"type": "text_chunk", "content": "Mohon gunakan Tab FRIDAY atau ketik tanpa streaming untuk render diagram via HTTP, Bos."})
+                await websocket.send_json({"type": "stream_end"})
                 continue
 
             wib = pytz.timezone('Asia/Jakarta')
             time_now = datetime.datetime.now(wib).strftime("%H:%M WIB")
+            prompt = f"Waktu sekarang {time_now}. Jawab secara singkat, cepat, berkelas: {data}"
 
-            prompt = f"Waktu sekarang {time_now}. Jawab secara singkat, cepat, berkelas, dan langsung pada inti: {data}"
-
-            # Stream jawaban dari Gemini API secara instant chunk-by-chunk
-            response_stream = client.models.generate_content_stream(
-                model="gemini-3.6-flash",
-                contents=prompt
-            )
+            response_stream = client.models.generate_content_stream(model="gemini-3.6-flash", contents=prompt)
+            full_reply = ""
 
             for chunk in response_stream:
                 if chunk.text:
-                    # Kirimkan potongan kata langsung ke HP tanpa jeda
-                    await websocket.send_json({
-                        "type": "text_chunk",
-                        "content": chunk.text
-                    })
+                    full_reply += chunk.text
+                    await websocket.send_json({"type": "text_chunk", "content": chunk.text})
                     await asyncio.sleep(0.01)
 
-            # Kirim sinyal bahwa respons telah selesai
-            await websocket.send_json({"type": "stream_end"})
+            # Generate TTS setelah teks selesai dan kirim audionya
+            audio_b64 = generate_gtts_base64_sync(full_reply)
+            await websocket.send_json({"type": "stream_end", "audio_base64": audio_b64})
 
     except WebSocketDisconnect:
         print("⚡ [LOW-LATENCY STREAM] Client disconnected.")
     except Exception as e:
         print(f"🚨 [STREAM ERROR]: {e}")
-        try:
-            await websocket.close()
-        except:
-            pass
+        try: await websocket.close()
+        except: pass
 
 def run_fastapi():
     port = int(os.getenv("PORT", 8080))
