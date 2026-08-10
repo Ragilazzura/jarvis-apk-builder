@@ -43,6 +43,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi import Header, HTTPException
 from fastapi import WebSocket, WebSocketDisconnect
 import uvicorn
 
@@ -58,6 +59,10 @@ MODEL_NAME = "gemini-3.6-flash"
 
 # Status Keamanan Stark Protocol
 IS_LOCKDOWN = False
+
+LOCAL_COMMAND_QUEUE = []
+LOCAL_COMMAND_RESULT = None
+CLIENT_SECRET_KEY = "STARK_OVERRIDE_SECRET_2026"
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
@@ -783,6 +788,32 @@ async def websocket_voice_endpoint(websocket: WebSocket):
         try: await websocket.close()
         except: pass
 
+class ClientReportRequest(BaseModel):
+    output: str
+    status: str
+
+@web_app.get("/client/poll")
+def client_poll_command(authorization: str = Header(None)):
+    global LOCAL_COMMAND_QUEUE
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied: Invalid Stark Key")
+    
+    # Ambil perintah teratas jika ada
+    if LOCAL_COMMAND_QUEUE:
+        cmd = LOCAL_COMMAND_QUEUE.pop(0)
+        return {"command": cmd}
+    return {"command": None}
+
+@web_app.post("/client/report")
+def client_report_result(request: ClientReportRequest, authorization: str = Header(None)):
+    global LOCAL_COMMAND_RESULT
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied: Invalid Stark Key")
+    
+    LOCAL_COMMAND_RESULT = request.output
+    print(f"💻 [STARK HYBRID] Laporan dari PC Lokal diterima: {request.output[:100]}...")
+    return {"status": "received"}
+
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
     error_msg = f"FastAPI Endpoint Error on [{request.method}] {request.url}\nDetail: {str(exc)}"
@@ -1012,32 +1043,8 @@ async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_
 
     await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`.")
 
-async def research_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if not context.args:
-        await update.message.reply_text("Sertakan topik yang mau diriset ya, Bos!")
-        return
-
-    topic = " ".join(context.args)
-    await update.message.reply_text(f"🛰️ *FRIDAY Agent dikirim!* Sedang menjelajah web untuk meriset `{topic}`...")
-
-    def run_async_research():
-        report = autonomous_research(topic)
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": f"📊 *RESEARCH REPORT: {topic.upper()}*\n\n{report}"
-        }
-        try:
-            requests.post(url, json=payload)
-        except Exception as e:
-            print(f"[!] Gagal kirim laporan riset: {e}")
-
-    threading.Thread(target=run_async_research, daemon=True).start()
-
 async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global LOCAL_COMMAND_QUEUE
     chat_id = str(update.effective_chat.id)
     if chat_id != ALLOWED_CHAT_ID: return
 
@@ -1050,22 +1057,8 @@ async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     command_to_run = " ".join(context.args)
-    await update.message.reply_text(f"⚡ *E.D.I.T.H. Executing:* `{command_to_run}`...")
-
-    def run_async_cmd():
-        result = execute_terminal_command(command_to_run)
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": f"💻 *E.D.I.T.H. TERMINAL OUTPUT*\n\n{result}",
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url, json=payload)
-        except Exception as e:
-            print(f"[!] Gagal kirim output terminal: {e}")
-
-    threading.Thread(target=run_async_cmd, daemon=True).start()
+    LOCAL_COMMAND_QUEUE.append(command_to_run)
+    await update.message.reply_text(f"⚡ *E.D.I.T.H. Hybrid Dispatch:* Perintah `{command_to_run}` dikirim ke antrean PC lokal Bos...", parse_mode="Markdown")
 
 async def journal_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
