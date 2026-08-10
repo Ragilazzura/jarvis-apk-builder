@@ -12,6 +12,7 @@ import html
 import threading
 import time
 import io
+import pytz
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -256,7 +257,8 @@ def ask_jarvis(user_msg: str) -> str:
     if IS_LOCKDOWN:
         return "🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Semua fungsi Jarvis sedang terkunci demi keamanan. Gunakan perintah `/unlock` untuk membuka kembali."
 
-    now = datetime.datetime.now()
+    wib = pytz.timezone('Asia/Jakarta')
+    now = datetime.datetime.now(wib)
     time_context = now.strftime("%A, %d %B %Y - Jam %H:%M WIB")
     memories = get_all_memories()
     vector_context = search_vector_db(user_msg)
@@ -699,6 +701,25 @@ def read_root():
         "time": str(datetime.datetime.now())
     }
 
+# 🚦 ROUTER BAHASA ALAMI (Memproses perintah PC tanpa perlu slash '/')
+def route_natural_language_command(user_message: str) -> str:
+    global LOCAL_COMMAND_QUEUE
+    msg_lower = user_message.lower()
+
+    # Pemicu Cek Kondisi PC / Hardware
+    if any(k in msg_lower for k in ["cek pc", "kondisi pc", "status pc", "hardware", "spesifikasi laptop", "pc condition"]):
+        cmd = 'powershell -Command "Get-CimInstance Win32_Processor | Select-Object Name, LoadPercentage; Get-CimInstance Win32_OperatingSystem | Select-Object FreePhysicalMemory, TotalVisibleMemorySize"'
+        LOCAL_COMMAND_QUEUE.append(cmd)
+        return "EXECUTE_PC_INFO"
+
+    # Pemicu Lock Screen PC
+    elif any(k in msg_lower for k in ["kunci pc", "kunci komputer", "lock pc", "lockscreen"]):
+        cmd = 'rundll32.exe user32.dll,LockWorkStation'
+        LOCAL_COMMAND_QUEUE.append(cmd)
+        return "EXECUTE_PC_LOCK"
+
+    return "CHAT_ONLY"
+
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
@@ -708,7 +729,19 @@ async def chat_endpoint(request: ChatRequest):
             "audio_base64": ""
         }
     
-    reply_text = ask_jarvis(request.message)
+    # 🎯 1. Cek apakah ada perintah bahasa alami untuk PC lokal
+    intent = route_natural_language_command(request.message)
+    wib = pytz.timezone('Asia/Jakarta')
+    current_wib = datetime.datetime.now(wib).strftime("%H:%M WIB")
+
+    if intent == "EXECUTE_PC_INFO":
+        reply_text = f"Siap Bos. Instruksi cek kondisi PC dikirim ke antrean PC lokal pada jam {current_wib}. Mohon tunggu telemetry data dari E.D.I.T.H."
+    elif intent == "EXECUTE_PC_LOCK":
+        reply_text = f"Protokol penguncian layar dikirim pada jam {current_wib}. Layar laptop Bos berhasil dikunci."
+    else:
+        # Percakapan umum via Gemini API
+        reply_text = ask_jarvis(request.message)
+
     msg_lower = request.message.lower()
 
     voice_triggers = ["pake suara", "pakai suara", "balas suara", "pake voice", "pakai voice", "pake vn", "bicaralah"]
