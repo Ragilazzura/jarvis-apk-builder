@@ -655,6 +655,54 @@ def ultron_sentinel_ping_job():
             print(f"[!] Gagal kirim Sentinel Alarm: {e}")
 
 # ==========================================
+# NATURAL LANGUAGE ROUTER TERPADU (ALL-IN-ONE)
+# ==========================================
+def route_natural_language_command(user_message: str) -> dict:
+    global LOCAL_COMMAND_QUEUE
+    msg_lower = user_message.lower()
+
+    # 1. 👁️ E.D.I.T.H. SCREEN VISION (Membaca Layar PC)
+    if any(k in msg_lower for k in ["baca layar", "lihat layar", "periksa layar", "layar pc", "screenshot pc", "layar laptop"]):
+        payload = {"type": "SCREEN_VISION", "prompt": user_message}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {"status": "EXECUTE", "reply": "Mengambil screenshot layar PC secara langsung..."}
+
+    # 2. 📻 MEDIA & VOLUME CONTROL
+    elif any(k in msg_lower for k in ["besarkan volume", "tambah volume", "volume naik"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_up"})
+        return {"status": "EXECUTE", "reply": "Volume PC dinaikkan, Bos."}
+
+    elif any(k in msg_lower for k in ["kecilkan volume", "kurangi volume", "volume turun"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_down"})
+        return {"status": "EXECUTE", "reply": "Volume PC dikurangi, Bos."}
+
+    elif any(k in msg_lower for k in ["mute pc", "matikan suara pc", "unmute pc"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_mute"})
+        return {"status": "EXECUTE", "reply": "Status mute audio PC diubah."}
+
+    elif any(k in msg_lower for k in ["pause musik", "play musik", "pause lagu", "play lagu"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "play_pause"})
+        return {"status": "EXECUTE", "reply": "Status pemutar media PC diperbarui."}
+
+    # 3. ⏰ SHUTDOWN & POWER CONTROL
+    elif "matikan pc" in msg_lower or "shutdown pc" in msg_lower:
+        numbers = re.findall(r'\d+', msg_lower)
+        minutes = int(numbers[0]) if numbers else 1
+        LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_TIMER", "minutes": minutes})
+        return {"status": "EXECUTE", "reply": f"Siap Bos. PC dijadwalkan akan mati otomatis dalam {minutes} menit."}
+
+    elif "batal shutdown" in msg_lower or "batalkan mati" in msg_lower:
+        LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_CANCEL"})
+        return {"status": "EXECUTE", "reply": "Penjadwalan shutdown PC berhasil dibatalkan, Bos!"}
+
+    # 4. 📂 LOCAL CODE / DOCUMENT INDEXING TRIGGER
+    elif any(k in msg_lower for k in ["indeks folder", "pindai kodingan", "indeks dokumen"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "START_FILE_INDEXING"})
+        return {"status": "EXECUTE", "reply": "Memulai pemindaian folder kerja dan pengindeksan dokumen lokal ke ChromaDB..."}
+
+    return {"status": "CHAT_ONLY"}
+
+# ==========================================
 # PROACTIVE SCHEDULER
 # ==========================================
 def daily_briefing_job():
@@ -860,6 +908,46 @@ async def websocket_voice_endpoint(websocket: WebSocket):
         print(f"🚨 [LIVE VOICE ERROR] {e}")
         try: await websocket.close()
         except: pass
+
+# ==========================================
+# ENDPOINT TAMBAHAN UNTUK INDEXER & ALERTS
+# ==========================================
+class DocumentIndexRequest(BaseModel):
+    file_name: str
+    content: str
+
+class ProactiveAlertRequest(BaseModel):
+    alert_message: str
+
+@web_app.post("/client/index_document")
+def receive_document_index(req: DocumentIndexRequest, authorization: str = Header(None)):
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    
+    doc_id = f"local_doc_{req.file_name}_{int(time.time())}"
+    success = add_to_vector_db(req.content[:4000], doc_id, {"source": req.file_name, "type": "local_code"})
+    
+    if success:
+        return {"status": "indexed", "file": req.file_name}
+    return {"status": "failed"}
+
+@web_app.post("/client/proactive_alert")
+def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": req.alert_message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Alert Error: {e}")
+        
+    return {"status": "alert_delivered"}
 
 class ClientReportRequest(BaseModel):
     output: str

@@ -14,23 +14,24 @@ from PIL import ImageGrab
 RAILWAY_URL = "https://worker-production-792b.up.railway.app"
 CLIENT_SECRET = "STARK_OVERRIDE_SECRET_2026"
 
-# Threshold Notifikasi Otomatis
-CPU_THRESHOLD = 90.0  # Alert jika CPU > 90%
-RAM_THRESHOLD = 90.0  # Alert jika RAM > 90%
+# Threshold Notifikasi Hardware
+CPU_THRESHOLD = 90.0
+RAM_THRESHOLD = 90.0
 last_alert_time = 0
 
-print("⚡ [STARK HYBRID] Jembatan Lokal E.D.I.T.H. Active & Monitoring...")
+# Folder Lokal yang Akan Diindeks Otomatis ke ChromaDB
+TARGET_INDEX_DIR = os.path.expanduser("~/Documents") # Sesuaikan dengan folder kodingan/dokumen Bos
+
+print("⚡ [STARK HYBRID MASTER] E.D.I.T.H., Vision, Media & Indexer Active!")
 
 def execute_windows_command(cmd_str):
-    """Mengeksekusi perintah terminal Windows"""
     try:
         res = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=15)
         return res.stdout if res.stdout else res.stderr
     except Exception as e:
-        return f"Error executing command: {e}"
+        return f"Error: {e}"
 
 def take_screenshot_base64():
-    """Mengambil screenshot layar dan mengubahnya ke Base64"""
     try:
         screenshot = ImageGrab.grab()
         buffered = io.BytesIO()
@@ -41,19 +42,18 @@ def take_screenshot_base64():
         return ""
 
 def check_hardware_health():
-    """Monitoring background untuk Proactive Push Notification"""
+    """Modul 4: Proactive Alerting Engine"""
     global last_alert_time
     now = time.time()
     
-    # Beri jeda minimal 5 menit antar notifikasi agar tidak spamming
-    if now - last_alert_time < 300:
+    if now - last_alert_time < 300: # Jeda 5 menit per notifikasi
         return
 
     cpu_use = psutil.cpu_percent(interval=1)
     ram_use = psutil.virtual_memory().percent
 
     if cpu_use > CPU_THRESHOLD or ram_use > RAM_THRESHOLD:
-        alert_msg = f"⚠️ *WARNING HARDWARE OVERLOAD!*\nCPU: {cpu_use}% | RAM: {ram_use}%\nLaptop Bos sedang bekerja sangat berat!"
+        alert_msg = f"⚠️ *WARNING HARDWARE OVERLOAD!*\nCPU: {cpu_use}% | RAM: {ram_use}%\nWorkstation Bos sedang bekerja sangat berat!"
         try:
             requests.post(
                 f"{RAILWAY_URL}/client/proactive_alert",
@@ -63,63 +63,78 @@ def check_hardware_health():
             last_alert_time = now
             print(f"🔔 [PROACTIVE ALERT SENT] CPU: {cpu_use}% | RAM: {ram_use}%")
         except Exception as e:
-            print(f"[!] Gagal mengirim alert: {e}")
+            print(f"[!] Gagal kirim alert: {e}")
+
+def scan_and_index_documents():
+    """Modul 2: Auto-Document & Code Indexer ke ChromaDB"""
+    print("📂 [INDEXER] Memulai pemindaian file lokal...")
+    valid_extensions = [".py", ".txt", ".md", ".json", ".dart"]
+    indexed_count = 0
+
+    for root, _, files in os.walk(TARGET_INDEX_DIR):
+        for file in files:
+            ext = os.path.splitext(file)[1].lower()
+            if ext in valid_extensions:
+                file_path = os.path.join(root, file)
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read(3000) # Ambil 3000 karakter pertama
+                    
+                    if content.strip():
+                        requests.post(
+                            f"{RAILWAY_URL}/client/index_document",
+                            headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
+                            json={"file_name": file, "content": content}
+                        )
+                        indexed_count += 1
+                        time.sleep(0.2)
+                except Exception as e:
+                    print(f"[!] Skip file {file}: {e}")
+
+    print(f"✅ [INDEXER COMPLETED] Berhasil mengindeks {indexed_count} file ke ChromaDB!")
 
 def process_command(data):
-    """Memproses instruksi yang datang dari cloud Railway"""
     cmd_type = data.get("type")
     
-    # 1. ANALISIS LAYAR (E.D.I.T.H. SCREEN VISION)
+    # 1. SCREEN VISION
     if cmd_type == "SCREEN_VISION":
         prompt_user = data.get("prompt", "Analisis layar PC ini, Bos.")
-        print("👁️ [E.D.I.T.H. VISION] Mengambil screenshot layar...")
+        print("👁️ [VISION] Mengambil screenshot layar...")
         img_b64 = take_screenshot_base64()
-        return {
-            "type": "VISION_RESPONSE",
-            "image_base64": img_b64,
-            "prompt": prompt_user
-        }
+        return {"type": "VISION_RESPONSE", "image_base64": img_b64, "prompt": prompt_user}
 
-    # 2. MEDIA & SYSTEM CONTROL
+    # 2. MEDIA CONTROL
     elif cmd_type == "MEDIA_CONTROL":
         action = data.get("action")
-        if action == "vol_up":
-            execute_windows_command("powershell -c \"(new-object -com wscript.shell).SendKeys([char]175)\"") # Vol Up
-        elif action == "vol_down":
-            execute_windows_command("powershell -c \"(new-object -com wscript.shell).SendKeys([char]174)\"") # Vol Down
-        elif action == "vol_mute":
-            execute_windows_command("powershell -c \"(new-object -com wscript.shell).SendKeys([char]173)\"") # Mute
-        elif action == "play_pause":
-            execute_windows_command("powershell -c \"(new-object -com wscript.shell).SendKeys([char]179)\"") # Play/Pause
-        return {"output": f"Media Control '{action}' executed."}
+        keys = {"vol_up": 175, "vol_down": 174, "vol_mute": 173, "play_pause": 179}
+        if action in keys:
+            execute_windows_command(f"powershell -c \"(new-object -com wscript.shell).SendKeys([char]{keys[action]})\"")
+        return {"output": f"Media Action '{action}' executed."}
 
-    # 3. SHUTDOWN TIMER CONTROL
+    # 3. SHUTDOWN CONTROL
     elif cmd_type == "SHUTDOWN_TIMER":
-        minutes = data.get("minutes", 30)
-        seconds = minutes * 60
-        execute_windows_command(f"shutdown /s /t {seconds}")
+        minutes = data.get("minutes", 1)
+        execute_windows_command(f"shutdown /s /t {minutes * 60}")
         return {"output": f"PC dijadwalkan shutdown dalam {minutes} menit."}
 
     elif cmd_type == "SHUTDOWN_CANCEL":
         execute_windows_command("shutdown /a")
         return {"output": "Penjadwalan shutdown dibatalkan."}
 
-    # 4. SHELL COMMAND UMUM
-    elif cmd_type == "SHELL":
-        output = execute_windows_command(data.get("command", ""))
-        return {"output": output}
+    # 4. START DOCUMENT INDEXER
+    elif cmd_type == "START_FILE_INDEXING":
+        scan_and_index_documents()
+        return {"output": "Pemindaian dan pengindeksan dokumen selesai."}
 
-    return {"output": "Unknown command type"}
+    return {"output": "Unknown command"}
 
 # ==========================================
-# LOOPING UTAMA (POLLING SERVER)
+# MAIN LOOPING
 # ==========================================
 while True:
     try:
-        # Cek beban hardware untuk Proactive Alert
         check_hardware_health()
 
-        # Polling antrean perintah dari server
         resp = requests.get(
             f"{RAILWAY_URL}/client/poll",
             headers={"Authorization": CLIENT_SECRET},
@@ -130,15 +145,13 @@ while True:
             job_data = resp.json()
             if job_data.get("command_data"):
                 result_payload = process_command(job_data["command_data"])
-                
-                # Kirim hasil eksekusi kembali ke server
                 requests.post(
                     f"{RAILWAY_URL}/client/report",
                     headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                     json=result_payload
                 )
 
-    except Exception as e:
-        pass  # Jaga agar skrip tidak crash jika koneksi sempat terputus
+    except Exception:
+        pass
         
     time.sleep(3)
