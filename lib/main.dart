@@ -71,7 +71,7 @@ class _HUDMainDashboardState extends State<HUDMainDashboard> {
               height: 300,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFFFFD700).withOpacity(0.05),
+                color: const Color(0xFFFFD700).withValues(alpha: 0.05),
               ),
             ),
           ),
@@ -96,9 +96,9 @@ class _HUDMainDashboardState extends State<HUDMainDashboard> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10141E).withOpacity(0.8),
+                              color: const Color(0xFF10141E).withValues(alpha: 0.8),
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
+                              border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.3)),
                             ),
                             child: const Row(
                               children: [
@@ -128,9 +128,9 @@ class _HUDMainDashboardState extends State<HUDMainDashboard> {
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0E121B).withOpacity(0.9),
+                        color: const Color(0xFF0E121B).withValues(alpha: 0.9),
                         borderRadius: BorderRadius.circular(30),
-                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                       ),
                       child: Row(
                         children: [
@@ -173,7 +173,7 @@ class _HUDMainDashboardState extends State<HUDMainDashboard> {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: const Color(0xFFFFD700).withOpacity(0.4),
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.4),
                       blurRadius: 10,
                       spreadRadius: 1,
                     )
@@ -554,8 +554,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                       constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
                       decoration: BoxDecoration(
                         color: isUser
-                            ? const Color(0xFFFFD700).withOpacity(0.15)
-                            : const Color(0xFF0F131D).withOpacity(0.85),
+                            ? const Color(0xFFFFD700).withValues(alpha: 0.15)
+                            : const Color(0xFF0F131D).withValues(alpha: 0.85),
                         borderRadius: BorderRadius.only(
                           topLeft: const Radius.circular(16),
                           topRight: const Radius.circular(16),
@@ -564,8 +564,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                         ),
                         border: Border.all(
                           color: isUser
-                              ? const Color(0xFFFFD700).withOpacity(0.5)
-                              : Colors.white.withOpacity(0.1),
+                              ? const Color(0xFFFFD700).withValues(alpha: 0.5)
+                              : Colors.white.withValues(alpha: 0.1),
                         ),
                       ),
                       child: Column(
@@ -629,7 +629,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                       decoration: BoxDecoration(
                         color: const Color(0xFF0E121B),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5)),
+                        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.5)),
                       ),
                       child: Row(
                         children: [
@@ -656,9 +656,9 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                     margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0E121B).withOpacity(0.95),
+                      color: const Color(0xFF0E121B).withValues(alpha: 0.95),
                       borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.25)),
+                      border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.25)),
                     ),
                     child: Row(
                       children: [
@@ -695,7 +695,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                           onPressed: () => _sendMessage(_controller.text),
                           icon: const Icon(Icons.arrow_upward_rounded, color: Color(0xFFFFD700), size: 20),
                           style: IconButton.styleFrom(
-                            backgroundColor: const Color(0xFFFFD700).withOpacity(0.15),
+                            backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.15),
                           ),
                         ),
                       ],
@@ -783,7 +783,7 @@ class _FridayWebTabState extends State<FridayWebTab> {
             decoration: BoxDecoration(
               color: const Color(0xFF0E121B),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: Row(
               children: [
@@ -816,9 +816,9 @@ class _FridayWebTabState extends State<FridayWebTab> {
               padding: const EdgeInsets.all(16),
               width: double.infinity,
               decoration: BoxDecoration(
-                color: const Color(0xFF0E121B).withOpacity(0.8),
+                color: const Color(0xFF0E121B).withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.15)),
+                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.15)),
               ),
               child: SingleChildScrollView(
                 child: Text(_webResult, style: const TextStyle(color: Color(0xFFFFE082), fontFamily: 'monospace', fontSize: 12, height: 1.4)),
@@ -900,7 +900,7 @@ class _EdithSentinelTabState extends State<EdithSentinelTab> {
               decoration: BoxDecoration(
                 color: const Color(0xFF0E121B),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5)),
+                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.5)),
               ),
               child: const Row(
                 children: [
@@ -921,7 +921,7 @@ class _EdithSentinelTabState extends State<EdithSentinelTab> {
               decoration: BoxDecoration(
                 color: const Color(0xFF0E121B),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.4)),
+                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.4)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -991,12 +991,12 @@ class _EdithSentinelTabState extends State<EdithSentinelTab> {
       decoration: BoxDecoration(
         color: const Color(0xFF0E121B),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: ListTile(
         leading: Container(
           padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
           child: Icon(icon, color: color, size: 20),
         ),
         title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
@@ -1094,9 +1094,9 @@ class _LogsJournalTabState extends State<LogsJournalTab> {
               padding: const EdgeInsets.all(16),
               width: double.infinity,
               decoration: BoxDecoration(
-                color: const Color(0xFF0E121B).withOpacity(0.85),
+                color: const Color(0xFF0E121B).withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.2)),
+                border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.2)),
               ),
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)))
@@ -1172,7 +1172,7 @@ class HolographicQuantumReactorPainter extends CustomPainter {
 
     final double glowAlpha = (0.08 + (activityLevel * 0.12)).clamp(0.0, 1.0);
     final Paint glowBackground = Paint()
-      ..color = const Color(0xFFAB47BC).withOpacity(glowAlpha)
+      ..color = const Color(0xFFAB47BC).withValues(alpha: glowAlpha)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 25);
     canvas.drawCircle(center, maxRadius * 0.8, glowBackground);
 
@@ -1226,7 +1226,7 @@ class HolographicQuantumReactorPainter extends CustomPainter {
         alpha = alpha.clamp(0.05, 1.0);
 
         final Paint dotPaint = Paint()
-          ..color = particleColor.withOpacity(alpha)
+          ..color = particleColor.withValues(alpha: alpha)
           ..style = PaintingStyle.fill;
 
         canvas.drawCircle(Offset(particleX, particleY), particleSize, dotPaint);
@@ -1235,7 +1235,7 @@ class HolographicQuantumReactorPainter extends CustomPainter {
 
     final double coreAlpha = (0.8 + (activityLevel * 0.2)).clamp(0.0, 1.0);
     final Paint corePaint = Paint()
-      ..color = const Color(0xFFFFF8E7).withOpacity(coreAlpha)
+      ..color = const Color(0xFFFFF8E7).withValues(alpha: coreAlpha)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
     canvas.drawCircle(center, 6.0 + (activityLevel * 4.0), corePaint);
   }

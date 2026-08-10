@@ -147,9 +147,22 @@ def process_command(data):
     # 5. 📧 COMMUNICATION ENGINE
     elif cmd_type == "SEND_EMAIL":
         print("📧 [COMMUNICATION] Menyiapkan transmisi email...")
-        target = data.get("target", "user@example.com")
-        msg = data.get("message", "Pesan dari Jarvis.")
-        res = send_email_smtp(target, "J.A.R.V.I.S Automated Protocol", msg)
+        import re
+        
+        raw_prompt = data.get("raw_prompt", "")
+        
+        # Ekstrak alamat email otomatis dari kalimat perintah Bos
+        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', raw_prompt)
+        target = emails[0] if emails else "email_bos_disini@gmail.com" # Ganti dengan email cadanganmu
+        
+        # Ekstrak isi pesan (mengambil kalimat setelah kata "isi" atau "pesan")
+        msg_body = raw_prompt
+        if "isi " in raw_prompt.lower():
+            msg_body = raw_prompt.lower().split("isi ", 1)[1]
+        elif "pesan " in raw_prompt.lower():
+            msg_body = raw_prompt.lower().split("pesan ", 1)[1]
+            
+        res = send_email_smtp(target, "J.A.R.V.I.S Automated Protocol", msg_body)
         return {"output": res}
         
     elif cmd_type == "SEND_WHATSAPP":
