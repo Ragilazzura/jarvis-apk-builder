@@ -718,7 +718,47 @@ def route_natural_language_command(user_message: str) -> str:
         LOCAL_COMMAND_QUEUE.append(cmd)
         return "EXECUTE_PC_LOCK"
 
-    return "CHAT_ONLY"
+    if any(k in msg_lower for k in ["baca layar", "lihat layar", "periksa layar", "layar pc", "screenshot pc", "layar laptop"]):
+        payload = {"type": "SCREEN_VISION", "prompt": user_message}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {"status": "EXECUTE", "type": "SCREEN_VISION"}
+
+    # 📻 2. Pemicu Kontrol Volume & Media
+    elif any(k in msg_lower for k in ["besarkan volume", "tambah volume", "volume naik"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_up"})
+        return {"status": "EXECUTE", "reply": "Volume PC dinaikkan, Bos."}
+
+    elif any(k in msg_lower for k in ["kecilkan volume", "kurangi volume", "volume turun"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_down"})
+        return {"status": "EXECUTE", "reply": "Volume PC dikurangi, Bos."}
+
+    elif any(k in msg_lower for k in ["mute pc", "matikan suara pc", "unmute pc"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_mute"})
+        return {"status": "EXECUTE", "reply": "Status mute audio PC diubah."}
+
+    elif any(k in msg_lower for k in ["pause musik", "play musik", "pause lagu", "play lagu"]):
+        LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "play_pause"})
+        return {"status": "EXECUTE", "reply": "Status pemutar media PC diperbarui."}
+
+    # ⏰ 3. Pemicu Shutdown / Matikan PC
+    elif "matikan pc" in msg_lower or "shutdown pc" in msg_lower:
+        # Cek apakah ada kata angka menit (misal: "shutdown pc 30 menit")
+        import re
+        numbers = re.findall(r'\d+', msg_lower)
+        minutes = int(numbers[0]) if numbers else 0
+        
+        if minutes > 0:
+            LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_TIMER", "minutes": minutes})
+            return {"status": "EXECUTE", "reply": f"Siap Bos. PC dijadwalkan akan otomatis mati dalam {minutes} menit."}
+        else:
+            LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_TIMER", "minutes": 1})
+            return {"status": "EXECUTE", "reply": "Protokol shutdown dikirim. PC akan mati dalam 1 menit."}
+
+    elif "batal shutdown" in msg_lower or "batalkan mati" in msg_lower:
+        LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_CANCEL"})
+        return {"status": "EXECUTE", "reply": "Penjadwalan shutdown PC berhasil dibatalkan, Bos!"}
+
+    return {"status": "CHAT_ONLY"}
 
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
@@ -846,6 +886,28 @@ def client_report_result(request: ClientReportRequest, authorization: str = Head
     LOCAL_COMMAND_RESULT = request.output
     print(f"💻 [STARK HYBRID] Laporan dari PC Lokal diterima: {request.output[:100]}...")
     return {"status": "received"}
+
+class ProactiveAlertRequest(BaseModel):
+    alert_message: str
+
+@web_app.post("/client/proactive_alert")
+def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    
+    # Kirim langsung sebagai pesan darurat Telegram ke HP Bos
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": ALLOWED_CHAT_ID,
+        "text": req.alert_message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"[!] Gagal kirim Proactive Alert: {e}")
+        
+    return {"status": "alert_delivered"}
 
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
