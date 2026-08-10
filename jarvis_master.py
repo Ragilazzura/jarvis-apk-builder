@@ -808,6 +808,56 @@ def route_natural_language_command(user_message: str) -> str:
 
     return {"status": "CHAT_ONLY"}
 
+# ==========================================
+# PROYEK TASK FORCE: MULTI-STEP AGENT PLANNER
+# ==========================================
+class AutonomousTaskRequest(BaseModel):
+    task_description: str
+
+def plan_autonomous_task_chain(task_description: str) -> list:
+    """Mengubah instruksi bahasa alami kompleks menjadi rantai aksi berurutan"""
+    planner_prompt = f"""
+Kamu adalah Chief Task Planner dari J.A.R.V.I.S.
+Pecah instruksi kompleks berikut menjadi rantai langkah eksekusi terminal/shell yang logis dan aman untuk OS Windows.
+
+Instruksi Bos: "{task_description}"
+
+Kembalikan HANYA format JSON valid bertipe list of objects seperti contoh berikut (tanpa markdown ```json):
+[
+    {{"step": 1, "description": "Memeriksa status git", "command": "git status"}},
+    {{"step": 2, "description": "Menjalankan tes sintaks", "command": "python -m py_compile main.py"}}
+]
+"""
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=planner_prompt
+        )
+        clean_json = re.sub(r'```json|```', '', response.text).strip()
+        task_chain = json.loads(clean_json)
+        return task_chain
+    except Exception as e:
+        print(f"[!] Planning Error: {e}")
+        return [{"step": 1, "description": "Fallback Execution", "command": "echo Task planning failed"}]
+
+@web_app.post("/agent/task_force")
+def trigger_task_force(req: AutonomousTaskRequest):
+    global LOCAL_COMMAND_QUEUE
+    chain = plan_autonomous_task_chain(req.task_description)
+    
+    # Masukkan seluruh rantai pekerjaan ke antrean client PC
+    LOCAL_COMMAND_QUEUE.append({
+        "type": "TASK_FORCE_CHAIN",
+        "chain": chain,
+        "task_name": req.task_description
+    })
+    
+    return {
+        "status": "planned",
+        "message": f"Task Force diaktifkan. {len(chain)} langkah eksekusi dikirim ke PC lokal, Bos!",
+        "planned_steps": chain
+    }
+
 @web_app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
@@ -1005,6 +1055,53 @@ async def global_fastapi_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
     )
+
+# ==========================================
+# ULTRA-LOW LATENCY STREAMING VOICE & TEXT HUB
+# ==========================================
+@web_app.websocket("/ws/stream_chat")
+async def websocket_stream_chat_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("⚡ [LOW-LATENCY STREAM] HUD Client connected via High-Speed Stream.")
+    
+    try:
+        while True:
+            # Menerima pesan teks/instruksi dari Flutter HUD
+            data = await websocket.receive_text()
+            if not data:
+                continue
+
+            wib = pytz.timezone('Asia/Jakarta')
+            time_now = datetime.datetime.now(wib).strftime("%H:%M WIB")
+
+            prompt = f"Waktu sekarang {time_now}. Jawab secara singkat, cepat, berkelas, dan langsung pada inti: {data}"
+
+            # Stream jawaban dari Gemini API secara instant chunk-by-chunk
+            response_stream = client.models.generate_content_stream(
+                model="gemini-3.6-flash",
+                contents=prompt
+            )
+
+            for chunk in response_stream:
+                if chunk.text:
+                    # Kirimkan potongan kata langsung ke HP tanpa jeda
+                    await websocket.send_json({
+                        "type": "text_chunk",
+                        "content": chunk.text
+                    })
+                    await asyncio.sleep(0.01)
+
+            # Kirim sinyal bahwa respons telah selesai
+            await websocket.send_json({"type": "stream_end"})
+
+    except WebSocketDisconnect:
+        print("⚡ [LOW-LATENCY STREAM] Client disconnected.")
+    except Exception as e:
+        print(f"🚨 [STREAM ERROR]: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 def run_fastapi():
     port = int(os.getenv("PORT", 8080))

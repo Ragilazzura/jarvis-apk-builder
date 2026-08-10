@@ -126,6 +126,35 @@ def process_command(data):
         scan_and_index_documents()
         return {"output": "Pemindaian dan pengindeksan dokumen selesai."}
 
+    elif cmd_type == "TASK_FORCE_CHAIN":
+        chain = data.get("chain", [])
+        task_name = data.get("task_name", "Autonomous Task")
+        print(f"🤖 [TASK FORCE] Memulai rantai pekerjaan: '{task_name}' ({len(chain)} Langkah)...")
+        
+        execution_logs = []
+        for item in chain:
+            step_num = item.get("step")
+            desc = item.get("description")
+            cmd = item.get("command")
+            
+            print(f" └─ [Langkah {step_num}] {desc} -> Executing: `{cmd}`")
+            out = execute_windows_command(cmd)
+            execution_logs.append(f"Step {step_num} ({desc}):\n{out.strip()}\n")
+            time.sleep(1)
+
+        # Laporkan rangkuman eksekusi kembali ke Telegram/Cloud
+        full_report = f"✅ *TASK FORCE COMPLETED: {task_name}*\n\n" + "\n".join(execution_logs)
+        try:
+            requests.post(
+                f"{RAILWAY_URL}/client/proactive_alert",
+                headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
+                json={"alert_message": full_report[:4000]}
+            )
+        except:
+            pass
+
+        return {"output": f"Rantai eksekusi '{task_name}' sukses diselesaikan."}
+
     return {"output": "Unknown command"}
 
 # ==========================================
