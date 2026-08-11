@@ -557,16 +557,30 @@ Tugasmu sebagai VERONICA:
 4. JANGAN meminta data tambahan lagi. Langsung sajikan analisis dan Patch Code sekarang.
 """
     fix_suggestion = ask_jarvis(prompt)
+    alert_text = f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
     
+    # 1. Kirim ke Telegram (Sebagai Backup)
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ALLOWED_CHAT_ID,
-        "text": f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
+        "text": alert_text
     }
     try:
         requests.post(url, json=payload)
     except Exception as e:
-        print(f"[!] Gagal kirim Veronica alert: {e}")
+        print(f"[!] Gagal kirim Veronica alert ke Telegram: {e}")
+
+    # 2. 🔥 Tembakkan juga ke HUD HP (Via Internal Endpoint)
+    try:
+        local_port = os.getenv("PORT", 8080)
+        requests.post(
+            f"http://127.0.0.1:{local_port}/client/proactive_alert",
+            headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+            json={"alert_message": alert_text},
+            timeout=5
+        )
+    except Exception as e:
+        print(f"[!] Gagal mem-forward Veronica ke HUD: {e}")
 
 def veronica_global_exception_handler(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
