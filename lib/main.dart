@@ -241,7 +241,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                 _controller.text = result.recognizedWords;
               });
               if (result.finalResult && _controller.text.isNotEmpty) {
-                _sendMessage(_controller.text);
+                _sendMessage(_controller.text, isVoiceInput: true);
               }
             }
           },
@@ -256,7 +256,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
-  Future<void> _sendMessage(String text) async {
+  Future<void> _sendMessage(String text, {bool isVoiceInput = false}) async {
     if (text.trim().isEmpty && _selectedImage == null) return;
 
     if (_isListening) {
@@ -275,35 +275,41 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     });
     _nanoActivityController.forward(from: 0.0);
 
-    if (imageToSend != null) {
-      try {
-        List<int> imageBytes = await imageToSend.readAsBytes();
-        String base64Image = base64Encode(imageBytes);
+    // 🌐 KIRIM KE SERVER DENGAN STATUS is_voice_input YANG SESUAI
+    try {
+      List<int>? imageBytes = imageToSend != null ? await imageToSend.readAsBytes() : null;
+      String base64Image = imageBytes != null ? base64Encode(imageBytes) : "";
 
-        final response = await http.post(
-          Uri.parse("$serverUrl/chat"),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode({
-            "message": userMsg.isEmpty ? "Tolong analisis gambar ini, Bos." : userMsg,
-            "image_base64": base64Image,
-            "is_voice_input": false
-          }),
-        );
+      final response = await http.post(
+        Uri.parse("$serverUrl/chat"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "message": userMsg.isEmpty ? "Tolong analisis gambar ini, Bos." : userMsg,
+          "image_base64": base64Image.isNotEmpty ? base64Image : null,
+          "is_voice_input": isVoiceInput // 🔥 Mengirim status true/fase ke backend
+        }),
+      );
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          _addMessage("jarvis", data["reply"] ?? "Analisis gambar selesai.");
-          if (data["audio_base64"] != null) {
-            _playTtsAudio(data["audio_base64"]);
-          }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        Uint8List? imgBytes;
+        if (data["image_base64"] != null && data["image_base64"].toString().isNotEmpty) {
+          imgBytes = base64Decode(data["image_base64"]);
         }
-      } catch (e) {
-        _addMessage("jarvis", "🚨 Gagal menganalisis gambar: $e");
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
-        _nanoActivityController.reverse();
+
+        _addMessage("jarvis", data["reply"] ?? "Protocol executed.", imageBytes: imgBytes);
+
+        // Audio hanya akan diputar jika server mengirimkan audio_b64 (artinya is_voice_input bernilai true)
+        if (data["audio_base64"] != null && data["audio_base64"].toString().isNotEmpty) {
+          _playTtsAudio(data["audio_base64"]);
+        }
       }
-      return;
+    } catch (e) {
+      _addMessage("jarvis", "🚨 Connection Error: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+      _nanoActivityController.reverse();
     }
 
     try {
@@ -561,7 +567,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                           ),
                         ),
                         IconButton(
-                          onPressed: () => _sendMessage(_controller.text),
+                          onPressed: () => _sendMessage(_controller.text, isVoiceInput: false),
                           icon: const Icon(Icons.arrow_upward_rounded, color: Color(0xFFFFD700), size: 20),
                           style: IconButton.styleFrom(
                             backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.15),

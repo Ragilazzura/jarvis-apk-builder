@@ -353,23 +353,28 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
         return f"🚨 Error membaca gambar: {e}"
 
 # 🔊 FUNGSI gTTS UNTUK AUDIO RESPONS HUD
-def generate_gtts_base64_sync(text: str, lang: str = 'id') -> str:
-    try:
-        from gtts import gTTS
-        import io
-        import base64
-        
-        # Buat audio gTTS
-        tts = gTTS(text=text, lang=lang)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        
-        # Konversi ke Base64
-        return base64.b64encode(fp.read()).decode('utf-8')
-    except Exception as e:
-        print(f"🚨 Error gTTS: {e}")
-        return ""
+import re
+
+def detect_language(text: str) -> str:
+    """Deteksi sederhana apakah teks cenderung Bahasa Inggris atau Indonesia"""
+    english_keywords = {"the", "is", "and", "to", "a", "of", "in", "for", "on", "that", "you", "it", "with", "as", "all", "have", "more"}
+    indonesian_keywords = {"dan", "yang", "di", "ke", "dari", "ini", "itu", "untuk", "dengan", "adalah", "tidak", "pada", "dalam", "saya", "kamu", "bos"}
+    
+    words = set(re.findall(r'\b\w+\b', text.lower()))
+    en_matches = len(words.intersection(english_keywords))
+    id_matches = len(words.intersection(indonesian_keywords))
+    
+    return 'en' if en_matches > id_matches else 'id'
+
+def generate_gtts_base64_sync(text: str) -> str:
+    lang_code = detect_language(text)
+    
+    tts = gTTS(text=text, lang=lang_code)
+    mp3_fp = io.BytesIO()
+    tts.write_to_fp(mp3_fp)
+    mp3_fp.seek(0)
+    
+    return base64.b64encode(mp3_fp.read()).decode('utf-8')
 
 async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
     try:
@@ -897,40 +902,55 @@ async def chat_endpoint(request: ChatRequest):
     if IS_LOCKDOWN:
         return {"status": "error", "reply": "🔒 STARK LOCKDOWN ACTIVE.", "audio_base64": ""}
     
+    reply_text = ""
+    diag_b64 = None
+
     # 1. JIKA ADA LAMPIRAN GAMBAR DARI HUD
     if request.image_base64:
         img_bytes = base64.b64decode(request.image_base64)
         reply_text = ask_jarvis_with_image(img_bytes, request.message)
-        audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
-        return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
 
-    # 2. CEK INTENT BAHASA ALAMI
-    intent = route_natural_language_command(request.message)
-    
-    if intent.get("status") == "EXECUTE":
-        reply_text = intent.get("reply")
-        audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
-        return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
+    else:
+        # 2. CEK INTENT BAHASA ALAMI
+        intent = route_natural_language_command(request.message)
         
-    elif intent.get("status") == "EXECUTE_DIAGRAM":
-        # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
-        steps = [s.strip() for s in request.message.split("->")]
-        if len(steps) > 1:
-            edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
-            diagram_path = generate_system_diagram(edges)
-            if diagram_path and os.path.exists(diagram_path):
-                with open(diagram_path, "rb") as f:
-                    diag_b64 = base64.b64encode(f.read()).decode('utf-8')
-                os.remove(diagram_path)
-                reply_text = "Diagram berhasil di-render, Bos."
-                audio_b64 = generate_gtts_base64_sync(reply_text)
-                return {"status": "success", "reply": reply_text, "image_base64": diag_b64, "audio_base64": audio_b64}
-        return {"status": "success", "reply": "Gagal render diagram. Gunakan format panah (->)", "audio_base64": ""}
+        if intent.get("status") == "EXECUTE":
+            reply_text = intent.get("reply")
+            
+        elif intent.get("status") == "EXECUTE_DIAGRAM":
+            # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
+            steps = [s.strip() for s in request.message.split("->")]
+            if len(steps) > 1:
+                edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
+                diagram_path = generate_system_diagram(edges)
+                if diagram_path and os.path.exists(diagram_path):
+                    with open(diagram_path, "rb") as f:
+                        diag_b64 = base64.b64encode(f.read()).decode('utf-8')
+                    os.remove(diagram_path)
+                    reply_text = "Diagram berhasil di-render, Bos."
+            if not reply_text:
+                reply_text = "Gagal render diagram. Gunakan format panah (->)"
 
-    # 3. CHAT BIASA VIA GEMINI
-    reply_text = ask_jarvis(request.message)
-    audio_b64 = generate_gtts_base64_sync(reply_text, lang='id')
-    return {"status": "success", "reply": reply_text, "audio_base64": audio_b64}
+        else:
+            # 3. CHAT BIASA VIA GEMINI
+            reply_text = ask_jarvis(request.message)
+
+    # Generate audio HANYA jika is_voice_input bernilai True
+    audio_b64 = ""
+    if request.is_voice_input and reply_text:
+        audio_b64 = generate_gtts_base64_sync(reply_text)
+
+    # Susun respons akhir
+    response_data = {
+        "status": "success", 
+        "reply": reply_text, 
+        "audio_base64": audio_b64
+    }
+    
+    if diag_b64:
+        response_data["image_base64"] = diag_b64
+
+    return response_data
 
 @web_app.get("/status")
 def status_endpoint():
