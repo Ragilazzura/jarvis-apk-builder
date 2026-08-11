@@ -108,7 +108,7 @@ class ASCARMaintenanceEngine:
         print("🔍 [A.S.C.A.R.] Memulai penelusuran berkas...")
 
         for root, dirs, files in os.walk(self.base_dir):
-            # 🔥 PRUNING DIRECTORY: Potong folder yang diabaikan di awal
+            
             dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith('.')]
 
             for file in files:
@@ -137,7 +137,7 @@ class ASCARMaintenanceEngine:
                 # ⚙️ Audit Configs
                 elif file.endswith((".yaml", ".gradle", ".kts", ".json")):
                     results["config_files"] += 1
-
+        print("✨ [A.S.C.A.R.] Pemindaian seluruh berkas selesai!")
         return results
 
     def run_full_diagnostic(self) -> str:

@@ -204,19 +204,36 @@ def process_command(data):
         return {"output": f"Rantai eksekusi '{task_name}' sukses diselesaikan."}
         
     elif cmd_type == "RUN_ASCAR_DIAGNOSTIC":
-        print("🛡️ [A.S.C.A.R.] Menerima pemicu audit repositori dari Cloud...")
+        print("\n🛡️ [A.S.C.A.R.] Menerima pemicu audit repositori dari Cloud...")
         print("🔍 [A.S.C.A.R.] Memulai pemindaian berkas & uji sintaks...")
+        
         from ascar_engine import ASCARMaintenanceEngine
         engine = ASCARMaintenanceEngine()
+        
+        # 1. Jalankan Audit Total & Auto-Repair
         report_msg = engine.run_full_diagnostic()
+        print("📊 [A.S.C.A.R.] Laporan berhasil disusun di RAM!")
+        
+        # 2. Kirim Laporan ke Cloud Railway agar diteruskan ke HUD HP
+        print("🚀 [A.S.C.A.R.] Mengirimkan laporan ke HUD HP Bos via Railway...")
         try:
-            requests.post(
-                f"{RAILWAY_SERVER_URL}/api/push_hud_message",
-                json={"sender": "ascar", "message": report_msg},
-                timeout=300
+            resp = requests.post(
+                f"{RAILWAY_SERVER_URL}/client/proactive_alert",
+                headers={
+                    "Authorization": CLIENT_SECRET_KEY, 
+                    "Content-Type": "application/json"
+                },
+                json={"alert_message": report_msg},
+                timeout=30
             )
+            if resp.status_code == 200:
+                print("✅ [A.S.C.A.R.] LAPORAN BERHASIL MENDARAT DI HUD HP BOS!\n")
+            else:
+                print(f"⚠️ [A.S.C.A.R.] Server Cloud merespons HTTP status: {resp.status_code}\n")
         except Exception as e:
-            print(f"Gagal mengirim laporan ASCAR ke HUD: {e}")
+            print(f"🚨 [A.S.C.A.R.] Gagal mengirim laporan ke Cloud: {e}\n")
+
+        return {"output": "A.S.C.A.R. Diagnostic execution completed."}
 
     return {"output": f"Unknown command: {cmd_type}"}
 
