@@ -64,6 +64,7 @@ IS_LOCKDOWN = False
 LOCAL_COMMAND_QUEUE = []
 LOCAL_COMMAND_RESULT = None
 CLIENT_SECRET_KEY = "STARK_OVERRIDE_SECRET_2026"
+ACTIVE_HUD_CONNECTIONS = []
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
 client = genai.Client(api_key=CLEAN_GEMINI_KEY)
@@ -998,28 +999,6 @@ def receive_document_index(req: DocumentIndexRequest, authorization: str = Heade
         return {"status": "indexed", "file": req.file_name}
     return {"status": "failed"}
 
-@web_app.post("/client/proactive_alert")
-def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
-    if authorization != CLIENT_SECRET_KEY:
-        raise HTTPException(status_code=403, detail="Access Denied")
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": req.alert_message,
-        "parse_mode": "Markdown"
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Alert Error: {e}")
-        
-    return {"status": "alert_delivered"}
-
-class ClientReportRequest(BaseModel):
-    output: str
-    status: str
-
 @web_app.get("/client/poll")
 def client_poll_command(authorization: str = Header(None)):
     global LOCAL_COMMAND_QUEUE
@@ -1042,27 +1021,35 @@ def client_report_result(request: ClientReportRequest, authorization: str = Head
     print(f"💻 [STARK HYBRID] Laporan dari PC Lokal diterima: {request.output[:100]}...")
     return {"status": "received"}
 
-class ProactiveAlertRequest(BaseModel):
-    alert_message: str
-
 @web_app.post("/client/proactive_alert")
-def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
+async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Access Denied")
     
-    # Kirim langsung sebagai pesan darurat Telegram ke HP Bos
+    # 1. Kirim ke Telegram (Sebagai Backup)
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": req.alert_message,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": ALLOWED_CHAT_ID, "text": req.alert_message, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload)
     except Exception as e:
-        print(f"[!] Gagal kirim Proactive Alert: {e}")
-        
+        print(f"[!] Gagal kirim Proactive Alert ke Telegram: {e}")
+
+    # 2. 🔥 BROADCAST KE HUD HP JIKA SEDANG DIBUKA
+    for ws in ACTIVE_HUD_CONNECTIONS:
+        try:
+            # Kirim teks notifikasi ke layar chat
+            await ws.send_json({"type": "text_chunk", "content": f"\n🚨 *SYSTEM ALERT*\n{req.alert_message}\n"})
+            
+            # Buatkan suara peringatan instan
+            audio_b64 = generate_gtts_base64_sync("Peringatan, Bos. Ada sistem yang overload.", lang='id')
+            await ws.send_json({"type": "stream_end", "audio_base64": audio_b64})
+        except:
+            pass
+            
     return {"status": "alert_delivered"}
+
+class ProactiveAlertRequest(BaseModel):
+    alert_message: str
 
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
@@ -1079,6 +1066,7 @@ async def global_fastapi_exception_handler(request: Request, exc: Exception):
 @web_app.websocket("/ws/stream_chat")
 async def websocket_stream_chat_endpoint(websocket: WebSocket):
     await websocket.accept()
+    ACTIVE_HUD_CONNECTIONS.append(websocket) # 🔥 Daftarkan HUD ke sistem
     print("⚡ [LOW-LATENCY STREAM] HUD Client connected.")
     
     try:
@@ -1121,6 +1109,8 @@ async def websocket_stream_chat_endpoint(websocket: WebSocket):
         print("⚡ [LOW-LATENCY STREAM] Client disconnected.")
     except Exception as e:
         print(f"🚨 [STREAM ERROR]: {e}")
+    finally:
+        ACTIVE_HUD_CONNECTIONS.remove(websocket) # 🔥 Hapus HUD dari daftar jika aplikasi ditutup
         try: await websocket.close()
         except: pass
 
