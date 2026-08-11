@@ -564,27 +564,38 @@ class JarvisWebSocketService {
   JarvisWebSocketService._internal();
 
   WebSocketChannel? channel;
+  bool _isConnecting = false;
 
   void connect(Function(dynamic) onMessageReceived) {
+    if (_isConnecting) return;
+    _isConnecting = true;
+
     try {
       channel = WebSocketChannel.connect(
         Uri.parse("wss://worker-production-792b.up.railway.app/ws/stream_chat"),
       );
+      
       channel!.stream.listen(
         (event) {
+          _isConnecting = false;
           final data = jsonDecode(event);
           onMessageReceived(data);
         },
         onError: (error) {
-          debugPrint("WS Error: $error");
-          Future.delayed(const Duration(seconds: 5), () => connect(onMessageReceived));
+          _isConnecting = false;
+          debugPrint("📡 [WS OFFLINE]: Gagal terhubung ke server Railway. Coba lagi dalam 10s...");
+          // Reconnect lebih tenang setiap 10 detik tanpa crash
+          Future.delayed(const Duration(seconds: 10), () => connect(onMessageReceived));
         },
         onDone: () {
-          Future.delayed(const Duration(seconds: 5), () => connect(onMessageReceived));
+          _isConnecting = false;
+          Future.delayed(const Duration(seconds: 10), () => connect(onMessageReceived));
         },
       );
     } catch (e) {
-      debugPrint("WS Connect Exception: $e");
+      _isConnecting = false;
+      debugPrint("📡 [WS EXCEPTION]: $e");
+      Future.delayed(const Duration(seconds: 10), () => connect(onMessageReceived));
     }
   }
 

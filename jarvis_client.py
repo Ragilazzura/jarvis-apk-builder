@@ -16,8 +16,8 @@ from pypdf import PdfReader, PdfWriter
 # ==========================================
 # KONFIGURASI JEMBATAN STARK HYBRID
 # ==========================================
-RAILWAY_URL = "https://worker-production-792b.up.railway.app"
 CLIENT_SECRET = "STARK_OVERRIDE_SECRET_2026"
+RAILWAY_SERVER_URL = "https://worker-production-792b.up.railway.app"
 
 # Threshold Notifikasi Hardware
 CPU_THRESHOLD = 90.0
@@ -61,7 +61,7 @@ def check_hardware_health():
         alert_msg = f"⚠️ *WARNING HARDWARE OVERLOAD!*\nCPU: {cpu_use}% | RAM: {ram_use}%\nWorkstation Bos sedang bekerja sangat berat!"
         try:
             requests.post(
-                f"{RAILWAY_URL}/client/proactive_alert",
+                f"{RAILWAY_SERVER_URL}/client/proactive_alert",
                 headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                 json={"alert_message": alert_msg}
             )
@@ -87,7 +87,7 @@ def scan_and_index_documents():
                     
                     if content.strip():
                         requests.post(
-                            f"{RAILWAY_URL}/client/index_document",
+                            f"{RAILWAY_SERVER_URL}/client/index_document",
                             headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                             json={"file_name": file, "content": content}
                         )
@@ -195,7 +195,7 @@ def process_command(data):
         full_report = f"✅ *TASK FORCE COMPLETED: {task_name}*\n\n" + "\n".join(execution_logs)
         try:
             requests.post(
-                f"{RAILWAY_URL}/client/proactive_alert",
+                f"{RAILWAY_SERVER_URL}/client/proactive_alert",
                 headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                 json={"alert_message": full_report[:4000]}
             )
@@ -204,6 +204,8 @@ def process_command(data):
         return {"output": f"Rantai eksekusi '{task_name}' sukses diselesaikan."}
         
     elif cmd_type == "RUN_ASCAR_DIAGNOSTIC":
+        print("🛡️ [A.S.C.A.R.] Menerima pemicu audit repositori dari Cloud...")
+        print("🔍 [A.S.C.A.R.] Memulai pemindaian berkas & uji sintaks...")
         from ascar_engine import ASCARMaintenanceEngine
         engine = ASCARMaintenanceEngine()
         report_msg = engine.run_full_diagnostic()
@@ -211,7 +213,7 @@ def process_command(data):
             requests.post(
                 f"{RAILWAY_SERVER_URL}/api/push_hud_message",
                 json={"sender": "ascar", "message": report_msg},
-                timeout=10
+                timeout=300
             )
         except Exception as e:
             print(f"Gagal mengirim laporan ASCAR ke HUD: {e}")
@@ -307,7 +309,7 @@ while True:
         check_hardware_health()
 
         resp = requests.get(
-            f"{RAILWAY_URL}/client/poll",
+            f"{RAILWAY_SERVER_URL}/client/poll",
             headers={"Authorization": CLIENT_SECRET},
             timeout=10
         )
@@ -320,7 +322,7 @@ while True:
                 result_payload = process_command(job_data["command"])
                 
                 requests.post(
-                    f"{RAILWAY_URL}/client/report",
+                    f"{RAILWAY_SERVER_URL}/client/report",
                     headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                     json=result_payload
                 )

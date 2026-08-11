@@ -49,9 +49,14 @@ class ASCARMaintenanceEngine:
             "scanned_paths": []
         }
 
+        IGNORED_DIRS = [
+            ".git", "build", ".dart_tool", "node_modules", 
+            ".ascar_backups", "venv", ".venv", "env", 
+            "__pycache__", ".idea", ".vscode", "android", "ios"
+        ]
+
         for root, dirs, files in os.walk(self.base_dir):
-            # Abaikan folder build, git, dan environment
-            if any(ignore in root for ignore in [".git", "build", ".dart_tool", "node_modules", ".ascar_backups"]):
+            if any(ignore in root for ignore in IGNORED_DIRS):
                 continue
 
             for file in files:
