@@ -1025,6 +1025,10 @@ def client_poll_command(authorization: str = Header(None)):
         return {"command": cmd}
     return {"command": None}
 
+class ClientReportRequest(BaseModel):
+    output: str
+    status: str
+
 @web_app.post("/client/report")
 def client_report_result(request: ClientReportRequest, authorization: str = Header(None)):
     global LOCAL_COMMAND_RESULT
