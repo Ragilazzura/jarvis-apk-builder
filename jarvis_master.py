@@ -842,7 +842,7 @@ web_app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     is_voice_input: bool = False
-    image_base64: str = None
+    image_base64: Optional[str] = None
 
 class IoTCommandRequest(BaseModel):
     device_id: str
