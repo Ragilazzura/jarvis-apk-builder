@@ -207,7 +207,14 @@ def process_command(data):
         from ascar_engine import ASCARMaintenanceEngine
         engine = ASCARMaintenanceEngine()
         report_msg = engine.run_full_diagnostic()
-        send_report_to_hud(report_msg)
+        try:
+            requests.post(
+                f"{RAILWAY_SERVER_URL}/api/push_hud_message",
+                json={"sender": "ascar", "message": report_msg},
+                timeout=10
+            )
+        except Exception as e:
+            print(f"Gagal mengirim laporan ASCAR ke HUD: {e}")
 
     return {"output": f"Unknown command: {cmd_type}"}
 

@@ -143,7 +143,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   File? _selectedImage;
 
   final String serverUrl = "https://worker-production-792b.up.railway.app";
-  final String wsUrl = "wss://worker-production-792b.up.railway.app/ws/stream_chat";
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -166,12 +165,15 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       duration: const Duration(milliseconds: 800),
     );
 
+    // 🌐 Listening Laporan WebSocket & Push (Termasuk Laporan A.S.C.A.R.)
     JarvisWebSocketService().connect((data) {
       if (data["type"] == "text_chunk" && data["content"] != null) {
         _addMessage("jarvis", data["content"]);
         if (data["audio_base64"] != null) {
           _playTtsAudio(data["audio_base64"]);
         }
+      } else if (data["sender"] == "ascar" || data["type"] == "ascar_report") {
+        _addMessage("jarvis", data["message"] ?? data["content"] ?? "🛡️ A.S.C.A.R. Report received.");
       }
     });
 
@@ -256,6 +258,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
+  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN (KEBAL DARI DUP-CHAT & SILENT ERROR)
   Future<void> _sendMessage(String text, {bool isVoiceInput = false}) async {
     if (text.trim().isEmpty && _selectedImage == null) return;
 
@@ -275,7 +278,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     });
     _nanoActivityController.forward(from: 0.0);
 
-    // 🌐 KIRIM KE SERVER DENGAN STATUS is_voice_input YANG SESUAI
     try {
       List<int>? imageBytes = imageToSend != null ? await imageToSend.readAsBytes() : null;
       String base64Image = imageBytes != null ? base64Encode(imageBytes) : "";
@@ -286,9 +288,9 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
         body: jsonEncode({
           "message": userMsg.isEmpty ? "Tolong analisis gambar ini, Bos." : userMsg,
           "image_base64": base64Image.isNotEmpty ? base64Image : null,
-          "is_voice_input": isVoiceInput // 🔥 Mengirim status true/fase ke backend
+          "is_voice_input": isVoiceInput
         }),
-      );
+      ).timeout(const Duration(seconds: 60)); // 🔥 Timeout 60s untuk Vision & ASCAR
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -300,84 +302,14 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
 
         _addMessage("jarvis", data["reply"] ?? "Protocol executed.", imageBytes: imgBytes);
 
-        // Audio hanya akan diputar jika server mengirimkan audio_b64 (artinya is_voice_input bernilai true)
         if (data["audio_base64"] != null && data["audio_base64"].toString().isNotEmpty) {
           _playTtsAudio(data["audio_base64"]);
         }
+      } else {
+        _addMessage("jarvis", "🚨 [HTTP ERROR ${response.statusCode}]: ${response.body}");
       }
     } catch (e) {
-      _addMessage("jarvis", "🚨 Connection Error: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-      _nanoActivityController.reverse();
-    }
-
-    try {
-      final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      channel.sink.add(userMsg);
-
-      int streamingIndex = -1;
-
-      channel.stream.listen((event) {
-        final data = jsonDecode(event);
-
-        if (data["type"] == "text_chunk") {
-          String chunk = data["content"] ?? "";
-          if (mounted) {
-            setState(() {
-              if (streamingIndex == -1) {
-                _messages.add({"sender": "jarvis", "text": chunk});
-                streamingIndex = _messages.length - 1;
-              } else {
-                _messages[streamingIndex]["text"] = (_messages[streamingIndex]["text"] ?? "") + chunk;
-              }
-            });
-          }
-        } 
-        else if (data["type"] == "diagram_response" || data["image_base64"] != null) {
-          Uint8List diagramBytes = base64Decode(data["image_base64"]);
-          _addMessage("jarvis", "📊 *MARK-UI Diagram Generated*", imageBytes: diagramBytes);
-        }
-        else if (data["type"] == "stream_end") {
-          if (data["audio_base64"] != null) {
-            _playTtsAudio(data["audio_base64"]);
-          }
-          channel.sink.close();
-          if (mounted) setState(() => _isLoading = false);
-          _nanoActivityController.reverse();
-        }
-      }, onError: (error) {
-        _sendHttpFallback(userMsg);
-      });
-    } catch (e) {
-      _sendHttpFallback(userMsg);
-    }
-  }
-
-  void _sendHttpFallback(String userMsg) async {
-    try {
-      final response = await http.post(
-        Uri.parse("$serverUrl/chat"),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"message": userMsg, "is_voice_input": false}),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        Uint8List? imgBytes;
-        if (data["image_base64"] != null && data["image_base64"].toString().isNotEmpty) {
-          imgBytes = base64Decode(data["image_base64"]);
-        }
-
-        _addMessage("jarvis", data["reply"] ?? "Protocol executed.", imageBytes: imgBytes);
-
-        if (data["audio_base64"] != null) {
-          _playTtsAudio(data["audio_base64"]);
-        }
-      }
-    } catch (e) {
-      _addMessage("jarvis", "🚨 Connection Error: $e");
+      _addMessage("jarvis", "🚨 [A.S.C.A.R. NETWORK ERROR]: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
       _nanoActivityController.reverse();
@@ -563,7 +495,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 6),
                             ),
-                            onSubmitted: _sendMessage,
+                            onSubmitted: (val) => _sendMessage(val, isVoiceInput: false),
                           ),
                         ),
                         IconButton(

@@ -914,42 +914,62 @@ async def chat_endpoint(request: ChatRequest):
     reply_text = ""
     diag_b64 = None
 
-    # 1. JIKA ADA LAMPIRAN GAMBAR DARI HUD
+    # 1. JIKA ADA LAMPIRAN GAMBAR DARI HUD (MULTIMODAL VISION)
     if request.image_base64:
-        img_bytes = base64.b64decode(request.image_base64)
-        reply_text = ask_jarvis_with_image(img_bytes, request.message)
+        try:
+            img_bytes = base64.b64decode(request.image_base64)
+            
+            # Jika user mengirim gambar tanpa teks, berikan prompt default
+            prompt_msg = request.message.strip() if request.message else "Tolong analisis gambar ini, Bos."
+            
+            reply_text = ask_jarvis_with_image(img_bytes, prompt_msg)
+            
+            if not reply_text:
+                reply_text = "⚠️ Gemini Vision tidak memberikan tanggapan untuk gambar ini."
+                
+        except Exception as e:
+            # Mengenangkap error dekode/vision agar HUD mendapatkan laporan instan (Anti-Silent Failure)
+            reply_text = f"🚨 [A.S.C.A.R. VISION ERROR]: Gagal memproses lampiran gambar -> {str(e)}"
 
     else:
-        # 2. CEK INTENT BAHASA ALAMI
-        intent = route_natural_language_command(request.message)
-        
-        if intent.get("status") == "EXECUTE":
-            reply_text = intent.get("reply")
+        # 2. CEK INTENT BAHASA ALAMI (COMMAND ROUTER)
+        try:
+            intent = route_natural_language_command(request.message)
             
-        elif intent.get("status") == "EXECUTE_DIAGRAM":
-            # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
-            steps = [s.strip() for s in request.message.split("->")]
-            if len(steps) > 1:
-                edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
-                diagram_path = generate_system_diagram(edges)
-                if diagram_path and os.path.exists(diagram_path):
-                    with open(diagram_path, "rb") as f:
-                        diag_b64 = base64.b64encode(f.read()).decode('utf-8')
-                    os.remove(diagram_path)
-                    reply_text = "Diagram berhasil di-render, Bos."
-            if not reply_text:
-                reply_text = "Gagal render diagram. Gunakan format panah (->)"
+            if intent.get("status") == "EXECUTE":
+                reply_text = intent.get("reply")
+                
+            elif intent.get("status") == "EXECUTE_DIAGRAM":
+                # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
+                steps = [s.strip() for s in request.message.split("->")]
+                if len(steps) > 1:
+                    edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
+                    diagram_path = generate_system_diagram(edges)
+                    if diagram_path and os.path.exists(diagram_path):
+                        with open(diagram_path, "rb") as f:
+                            diag_b64 = base64.b64encode(f.read()).decode('utf-8')
+                        os.remove(diagram_path)
+                        reply_text = "Diagram berhasil di-render, Bos."
+                if not reply_text:
+                    reply_text = "Gagal render diagram. Gunakan format panah (->)"
 
-        else:
-            # 3. CHAT BIASA VIA GEMINI
-            reply_text = ask_jarvis(request.message)
+            else:
+                # 3. CHAT BIASA VIA GEMINI TEXT MODEL
+                reply_text = ask_jarvis(request.message)
+                
+        except Exception as e:
+            reply_text = f"🚨 [A.S.C.A.R. CORE ERROR]: Gangguan pada alur instruksi -> {str(e)}"
 
     # Generate audio HANYA jika is_voice_input bernilai True
     audio_b64 = ""
     if request.is_voice_input and reply_text:
-        audio_b64 = generate_gtts_base64_sync(reply_text)
+        try:
+            audio_b64 = generate_gtts_base64_sync(reply_text)
+        except Exception as e:
+            print(f"[TTS WARNING] Gagal membangkitkan audio: {e}")
+            audio_b64 = ""
 
-    # Susun respons akhir
+    # Susun respons akhir ke HUD HP
     response_data = {
         "status": "success", 
         "reply": reply_text, 

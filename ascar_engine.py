@@ -8,6 +8,19 @@ class ASCARMaintenanceEngine:
         self.base_dir = os.path.abspath(base_dir)
         self.backup_dir = os.path.join(self.base_dir, ".ascar_backups")
 
+    def check_android_permissions() -> tuple[bool, str]:
+        manifest_path = os.path.join(self.base_dir, "android", "app", "src", "main", "AndroidManifest.xml")
+        if not os.path.exists(manifest_path):
+            return False, "AndroidManifest.xml tidak ditemukan!"
+        
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        if "RECORD_AUDIO" not in content:
+            return False, "Izin Mikrofon (RECORD_AUDIO) Belum Terpasang!"
+            
+        return True, "Izin Hardware Android Lengkap"
+
     def create_backup(self, file_path: str):
         """Membuat cadangan file sebelum dilakukan auto-patching"""
         if not os.path.exists(self.backup_dir):
