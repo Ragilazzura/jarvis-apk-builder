@@ -729,6 +729,21 @@ def route_natural_language_command(user_message: str) -> dict:
         return {"status": "EXECUTE_DIAGRAM", "reply": "Memproses pembuatan diagram secara visual..."}
     return {"status": "CHAT_ONLY"}
 
+    # 📊 PEMICU CEK HARDWARE & PROSES
+    elif any(k in msg_lower for k in ["cek hardware", "hardware metrics", "penggunaan pc", "status server"]):
+        cpu = psutil.cpu_percent(interval=0.5)
+        ram = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent
+        
+        metrics_msg = (
+            f"💻 STARK SYSTEM METRICS:\n"
+            f"• CPU Usage: {cpu}%\n"
+            f"• RAM Usage: {ram}%\n"
+            f"• Disk Usage: {disk}%\n"
+            f"• Status: All Systems Operational"
+        )
+        return {"status": "EXECUTE", "reply": metrics_msg}
+
 # ==========================================
 # PROACTIVE SCHEDULER
 # ==========================================

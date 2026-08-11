@@ -6,6 +6,9 @@ import io
 import subprocess
 import requests
 import psutil
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from PIL import ImageGrab
 import docx
 from pypdf import PdfReader, PdfWriter
@@ -298,15 +301,18 @@ while True:
         
         if resp.status_code == 200:
             job_data = resp.json()
-            if job_data.get("command_data"):
-                result_payload = process_command(job_data["command_data"])
+            if job_data.get("command"):
+                print(f"📥 [POLL] Menerima instruksi dari Cloud: {job_data['command']}")
+                
+                result_payload = process_command(job_data["command"])
+                
                 requests.post(
                     f"{RAILWAY_URL}/client/report",
                     headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},
                     json=result_payload
                 )
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"🚨 [KONEKSI ERROR]: {e}")
         
     time.sleep(3)

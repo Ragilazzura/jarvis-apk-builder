@@ -1,11 +1,9 @@
 import 'package:url_launcher/url_launcher.dart';
-import 'package:external_app_launcher/external_app_launcher.dart';
 
 class AndroidOmniController {
   
   // 1. 💬 KIRIM PESAN WHATSAPP LANGSUNG DARI HP
   static Future<String> sendWhatsApp({required String phone, required String message}) async {
-    // Format nomor harus diawali kode negara tanpa tanda '+' (Contoh: 628123456789)
     String cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
     if (cleanPhone.startsWith('0')) {
       cleanPhone = '62${cleanPhone.substring(1)}';
@@ -18,7 +16,6 @@ class AndroidOmniController {
         await launchUrl(whatsappUri);
         return "Membuka WhatsApp dan menyiapkan pesan ke $cleanPhone, Bos!";
       } else {
-        // Fallback via HTTPS Web API jika aplikasi WhatsApp belum terhubung
         final Uri webUri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}");
         await launchUrl(webUri, mode: LaunchMode.externalApplication);
         return "Membuka WhatsApp Web untuk mengirim pesan, Bos.";
@@ -66,57 +63,56 @@ class AndroidOmniController {
   }
 
   // ⏰ SET ALARM NATIVE HP
-static Future<String> setAlarm({required int hour, required int minute, required String message}) async {
-  final Uri alarmUri = Uri(
-    scheme: 'intent',
-    path: '#Intent',
-    queryParameters: {
-      'action': 'android.intent.action.SET_ALARM',
-      'extra.android.intent.extra.HOUR': hour.toString(),
-      'extra.android.intent.extra.MINUTES': minute.toString(),
-      'extra.android.intent.extra.MESSAGE': message,
-      'extra.android.intent.extra.SKIP_UI': 'true', // Setel tanpa perlu konfirmasi manual
-    },
-  );
+  static Future<String> setAlarm({required int hour, required int minute, required String message}) async {
+    final Uri alarmUri = Uri(
+      scheme: 'intent',
+      path: '#Intent',
+      queryParameters: {
+        'action': 'android.intent.action.SET_ALARM',
+        'extra.android.intent.extra.HOUR': hour.toString(),
+        'extra.android.intent.extra.MINUTES': minute.toString(),
+        'extra.android.intent.extra.MESSAGE': message,
+        'extra.android.intent.extra.SKIP_UI': 'true',
+      },
+    );
 
-  try {
-    if (await canLaunchUrl(alarmUri)) {
-      await launchUrl(alarmUri);
-      return "Alarm berhasil dipasang untuk jam ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}, Bos!";
-    } else {
-      // Fallback intent standar
-      final Uri fallbackUri = Uri.parse("intent://#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.HOUR=$hour;i.android.intent.extra.MINUTES=$minute;s.android.intent.extra.MESSAGE=${Uri.encodeComponent(message)};b.android.intent.extra.SKIP_UI=true;end");
-      await launchUrl(fallbackUri);
-      return "Protokol pengesetan alarm dikirim ke aplikasi Jam HP, Bos.";
+    try {
+      if (await canLaunchUrl(alarmUri)) {
+        await launchUrl(alarmUri);
+        return "Alarm berhasil dipasang untuk jam ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}, Bos!";
+      } else {
+        final Uri fallbackUri = Uri.parse("intent://#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.HOUR=$hour;i.android.intent.extra.MINUTES=$minute;s.android.intent.extra.MESSAGE=${Uri.encodeComponent(message)};b.android.intent.extra.SKIP_UI=true;end");
+        await launchUrl(fallbackUri);
+        return "Protokol pengesetan alarm dikirim ke aplikasi Jam HP, Bos.";
+      }
+    } catch (e) {
+      return "🚨 Gagal memasang alarm: $e";
     }
-  } catch (e) {
-    return "🚨 Gagal memasang alarm: $e";
   }
-}
 
   // 4. 🚀 BUKA APLIKASI DI HP (WhatsApp, Spotify, YouTube, dll)
   static Future<String> launchPhoneApp(String appName) async {
-    String packageName = "";
+    String scheme = "";
     String appLower = appName.toLowerCase();
 
     if (appLower.contains("whatsapp")) {
-      packageName = "com.whatsapp";
+      scheme = "whatsapp://";
     } else if (appLower.contains("spotify")) {
-      packageName = "com.spotify.music";
+      scheme = "spotify://";
     } else if (appLower.contains("youtube")) {
-      packageName = "com.google.android.youtube";
-    } else if (appLower.contains("chrome")) {
-      packageName = "com.android.chrome";
+      scheme = "vnd.youtube://";
     } else {
-      return "⚠️ Package Name untuk '$appName' belum terdaftar di sistem Jarvis.";
+      return "⚠️ Perintah buka aplikasi '$appName' belum terdaftar di sistem Jarvis.";
     }
 
     try {
-      await LaunchApp.openApp(
-        androidPackageName: packageName,
-        openStore: true,
-      );
-      return "Membuka aplikasi $appName di HP, Bos!";
+      final Uri appUri = Uri.parse(scheme);
+      if (await canLaunchUrl(appUri)) {
+        await launchUrl(appUri, mode: LaunchMode.externalApplication);
+        return "Membuka aplikasi $appName di HP, Bos!";
+      } else {
+        return "🚨 Aplikasi $appName tidak ditemukan di HP ini.";
+      }
     } catch (e) {
       return "🚨 Gagal membuka aplikasi $appName: $e";
     }

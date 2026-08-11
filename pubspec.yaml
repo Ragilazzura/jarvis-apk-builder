@@ -13,12 +13,11 @@ dependencies:
   http: ^1.2.0
   audioplayers: ^6.0.0
   flutter_tts: ^4.2.1
-  speech_to_text: ^6.3.0
+  speech_to_text: ^7.3.0
   cupertino_icons: ^1.0.8
   intl: ^0.20.3
   flutter_markdown: ^0.7.7+1
   url_launcher: ^6.3.0
-  external_app_launcher: ^3.1.0
   flutter_local_notifications: ^18.0.1
   timezone: ^0.9.4
   web_socket_channel: ^3.0.1
