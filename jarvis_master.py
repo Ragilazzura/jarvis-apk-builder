@@ -721,37 +721,36 @@ def route_natural_language_command(user_message: str) -> dict:
         LOCAL_COMMAND_QUEUE.append({"type": "START_FILE_INDEXING"})
         return {"status": "EXECUTE", "reply": "Memulai pemindaian folder kerja dan pengindeksan dokumen lokal ke ChromaDB..."}
 
-    # 📧 1. PEMICU KIRIM EMAIL
-    if "kirim email" in msg_lower or "tulis email" in msg_lower:
-        # Contoh format: "kirim email ke target@gmail.com subjek Laporan isi Halo Bos"
+    # 📧 5. PEMICU KIRIM EMAIL (Diperbaiki jadi elif)
+    elif "kirim email" in msg_lower or "tulis email" in msg_lower:
         payload = {"type": "SEND_EMAIL", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Memproses pembuatan dan pengiriman email..."}
 
-    # 💬 2. PEMICU WHATSAPP
+    # 💬 6. PEMICU WHATSAPP
     elif "kirim wa" in msg_lower or "whatsapp ke" in msg_lower:
         payload = {"type": "SEND_WHATSAPP", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Instruksi pengiriman WhatsApp diterima, memproses pesan..."}
 
-    # 📝 3. PEMICU EDIT/BUAT DOKUMEN WORD
+    # 📝 7. PEMICU EDIT/BUAT DOKUMEN WORD
     elif "tulis word" in msg_lower or "buat dokumen" in msg_lower or "edit word" in msg_lower:
         payload = {"type": "WORD_ACTION", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Memproses perintah dokumen Word di PC lokal..."}
 
-    # 📊 4. PEMICU CEK APLIKASI AKTIF
+    # 📊 8. PEMICU CEK APLIKASI AKTIF
     elif "cek aplikasi" in msg_lower or "aplikasi terbuka" in msg_lower or "proses pc" in msg_lower:
         LOCAL_COMMAND_QUEUE.append({"type": "CHECK_RUNNING_APPS"})
         return {"status": "EXECUTE", "reply": "Memindai seluruh aplikasi dan jendela yang sedang terbuka di PC..."}
 
-    # 🎨 5. PEMICU DIAGRAM GENERATOR
+    # 🎨 9. PEMICU DIAGRAM GENERATOR
     elif "buat diagram" in msg_lower or "gambar diagram" in msg_lower:
         return {"status": "EXECUTE_DIAGRAM", "reply": "Memproses pembuatan diagram secara visual..."}
 
-    # 📊 PEMICU CEK HARDWARE & PROSES
+    # 💻 10. PEMICU CEK HARDWARE & PROSES (Tanpa blocking interval)
     elif any(k in msg_lower for k in ["cek hardware", "hardware metrics", "penggunaan pc", "status server"]):
-        cpu = psutil.cpu_percent(interval=0.5)
+        cpu = psutil.cpu_percent()
         ram = psutil.virtual_memory().percent
         disk = psutil.disk_usage('/').percent
 
@@ -764,7 +763,7 @@ def route_natural_language_command(user_message: str) -> dict:
         )
         return {"status": "EXECUTE", "reply": metrics_msg}
 
-    # 🛠️ 6. PEMICU HEPHAESTUS (GIT / DEVOPS DARI HP)
+    # 🛠️ 11. PEMICU HEPHAESTUS (GIT / DEVOPS DARI HP)
     elif "git status" in msg_lower or "cek status git" in msg_lower:
         res = execute_git_workflow("status")
         return {"status": "EXECUTE", "reply": res}
@@ -774,11 +773,10 @@ def route_natural_language_command(user_message: str) -> dict:
         return {"status": "EXECUTE", "reply": res}
         
     elif "git push" in msg_lower or "unggah ke git" in msg_lower:
-        # Commit message default jika dari suara
         res = execute_git_workflow("push", "Auto-deploy via Voice/HUD Command")
         return {"status": "EXECUTE", "reply": res}
 
-    # 🧠 7. PEMICU M.I.N.D PALACE (RECALL MEMORY DARI HP)
+    # 🧠 12. PEMICU M.I.N.D PALACE (RECALL MEMORY DARI HP)
     elif "ingat kembali" in msg_lower or "recall memori" in msg_lower or "coba ingat" in msg_lower:
         topic = msg_lower.replace("ingat kembali", "").replace("recall memori", "").replace("coba ingat", "").strip()
         memories = search_vector_db(topic, n_results=3)
@@ -789,7 +787,7 @@ def route_natural_language_command(user_message: str) -> dict:
         summary = ask_jarvis(f"Rangkum ingatan ini secara singkat dan padat untuk Bos tentang '{topic}': {memories}")
         return {"status": "EXECUTE", "reply": f"📖 [MEMORY RECALL]\n{summary}"}
 
-    # 💻 8. PEMICU CODE AGENT DARI HP
+    # 💻 13. PEMICU CODE AGENT DARI HP
     elif msg_lower.startswith("buatkan script") or msg_lower.startswith("tulis kode"):
         is_success, log_msg, file_path = generate_and_test_code(user_message)
         return {"status": "EXECUTE", "reply": f"📝 Code Agent Report: {log_msg}"}
