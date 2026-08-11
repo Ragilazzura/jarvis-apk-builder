@@ -96,6 +96,12 @@ CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 vector_collection = chroma_client.get_or_create_collection(name="jarvis_knowledge")
 
+def legion_sub_agent_task(agent_type: str, prompt: str):
+    print(f"🤖 [LEGION] Sub-agent {agent_type} sedang memproses: {prompt}")
+
+async def research_command_handler(update, context):
+    await update.message.reply_text("🔎 Fitur Deep Research (FRIDAY) sedang dioptimalkan, Bos.")
+
 def init_memory_db():
     os.makedirs(BASE_DIR, exist_ok=True)
     try:
@@ -345,23 +351,23 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
     except Exception as e:
         return f"🚨 Error membaca gambar: {e}"
 
-# ==========================================
-# VOICE & CODE AGENT ENGINES (MENGGUNAKAN GTTS YANG STABIL)
-# ==========================================
-def generate_gtts_base64_sync(text: str, lang_code: str = 'id') -> str:
-    """Fungsi pembantu gTTS untuk menghasilkan base64 audio yang natural & stabil"""
+# 🔊 FUNGSI gTTS UNTUK AUDIO RESPONS HUD
+def generate_gtts_base64_sync(text: str, lang: str = 'id') -> str:
     try:
-        clean_txt = re.sub(r'[*_`#~\[\]\(\)]', '', text)[:400]
-        if not clean_txt.strip():
-            clean_txt = "At your service, Boss."
-            
-        tts = gTTS(text=clean_txt, lang=lang_code, slow=False)
+        from gtts import gTTS
+        import io
+        import base64
+        
+        # Buat audio gTTS
+        tts = gTTS(text=text, lang=lang)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
+        
+        # Konversi ke Base64
         return base64.b64encode(fp.read()).decode('utf-8')
     except Exception as e:
-        print(f"[!] gTTS Base64 Error: {e}")
+        print(f"🚨 Error gTTS: {e}")
         return ""
 
 async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
@@ -742,6 +748,36 @@ def route_natural_language_command(user_message: str) -> dict:
             f"• Status: All Systems Operational"
         )
         return {"status": "EXECUTE", "reply": metrics_msg}
+
+    # 🛠️ 6. PEMICU HEPHAESTUS (GIT / DEVOPS DARI HP)
+    elif "git status" in msg_lower or "cek status git" in msg_lower:
+        res = execute_git_workflow("status")
+        return {"status": "EXECUTE", "reply": res}
+        
+    elif "git pull" in msg_lower or "tarik git" in msg_lower:
+        res = execute_git_workflow("pull")
+        return {"status": "EXECUTE", "reply": res}
+        
+    elif "git push" in msg_lower or "unggah ke git" in msg_lower:
+        # Commit message default jika dari suara
+        res = execute_git_workflow("push", "Auto-deploy via Voice/HUD Command")
+        return {"status": "EXECUTE", "reply": res}
+
+    # 🧠 7. PEMICU M.I.N.D PALACE (RECALL MEMORY DARI HP)
+    elif "ingat kembali" in msg_lower or "recall memori" in msg_lower or "coba ingat" in msg_lower:
+        topic = msg_lower.replace("ingat kembali", "").replace("recall memori", "").replace("coba ingat", "").strip()
+        memories = search_vector_db(topic, n_results=3)
+        
+        if not memories:
+            return {"status": "EXECUTE", "reply": f"Maaf Bos, tidak ada ingatan tentang '{topic}' di M.I.N.D Palace."}
+            
+        summary = ask_jarvis(f"Rangkum ingatan ini secara singkat dan padat untuk Bos tentang '{topic}': {memories}")
+        return {"status": "EXECUTE", "reply": f"📖 [MEMORY RECALL]\n{summary}"}
+
+    # 💻 8. PEMICU CODE AGENT DARI HP
+    elif msg_lower.startswith("buatkan script") or msg_lower.startswith("tulis kode"):
+        is_success, log_msg, file_path = generate_and_test_code(user_message)
+        return {"status": "EXECUTE", "reply": f"📝 Code Agent Report: {log_msg}"}
 
     return {"status": "CHAT_ONLY"}
 
