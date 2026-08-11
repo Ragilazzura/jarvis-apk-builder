@@ -203,6 +203,12 @@ def process_command(data):
             pass
         return {"output": f"Rantai eksekusi '{task_name}' sukses diselesaikan."}
         
+    elif cmd_type == "RUN_ASCAR_DIAGNOSTIC":
+        from ascar_engine import ASCARMaintenanceEngine
+        engine = ASCARMaintenanceEngine()
+        report_msg = engine.run_full_diagnostic()
+        send_report_to_hud(report_msg)
+
     return {"output": f"Unknown command: {cmd_type}"}
 
 # ==========================================

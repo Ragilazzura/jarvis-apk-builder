@@ -797,6 +797,15 @@ def route_natural_language_command(user_message: str) -> dict:
         is_success, log_msg, file_path = generate_and_test_code(user_message)
         return {"status": "EXECUTE", "reply": f"📝 Code Agent Report: {log_msg}"}
 
+    # 🛡️ PROTOKOL A.S.C.A.R. (SELF-MAINTENANCE ENGINE)
+    elif any(k in msg_lower for k in ["ascar", "audit sistem", "periksa kode", "cek repositori", "ascar run"]):
+        payload = {"type": "RUN_ASCAR_DIAGNOSTIC"}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        return {
+            "status": "EXECUTE", 
+            "reply": "🛡️ [A.S.C.A.R. INITIATED]: Memulai pemindaian mendalam seluruh repositori JARVIS-AGENT di PC lokal..."
+        }    
+
     return {"status": "CHAT_ONLY"}
 
 # ==========================================
