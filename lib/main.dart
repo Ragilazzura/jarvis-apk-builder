@@ -287,10 +287,10 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "message": userMsg.isEmpty ? "Tolong analisis gambar ini, Bos." : userMsg,
-          "image_base64": base64Image.isNotEmpty ? base64Image : null,
+          "image_base64": base64Image,
           "is_voice_input": isVoiceInput
         }),
-      ).timeout(const Duration(seconds: 60)); // 🔥 Timeout 60s untuk Vision & ASCAR
+      ).timeout(const Duration(seconds: 120));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

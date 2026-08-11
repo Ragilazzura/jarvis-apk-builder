@@ -43,6 +43,7 @@ from playwright.async_api import async_playwright
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import Header, HTTPException
 from fastapi import WebSocket, WebSocketDisconnect
