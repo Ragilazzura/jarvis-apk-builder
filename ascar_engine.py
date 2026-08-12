@@ -8,8 +8,11 @@ class ASCARMaintenanceEngine:
     def __init__(self, base_dir="."):
         self.base_dir = os.path.abspath(base_dir)
         self.backup_dir = os.path.join(self.base_dir, ".ascar_backups")
-        
-        # Inisialisasi Client Gemini untuk Auto-Patching
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
         api_key = os.getenv("GEMINI_API_KEY", "").strip('"').strip("'")
         self.client = genai.Client(api_key=api_key) if api_key else None
 
