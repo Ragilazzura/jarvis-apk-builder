@@ -1,7 +1,28 @@
+# ==========================================
+# 🚨 SECRETS & ENVIRONMENT VARIABLES (WAJIB)
+# ==========================================
+.env
+*.env
+*.pem
+*.key
+
+# ==========================================
+# 🐍 PYTHON & A.S.C.A.R. TEMP / BACKUPS
+# ==========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ascar_backups/
+venv/
+.venv/
+env/
+ENV/
+test_crash.py
+
 # Miscellaneous
 *.class
 *.log
-*.pyc
 *.swp
 .DS_Store
 .atom/
@@ -18,9 +39,7 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
+# VS Code
 #.vscode/
 
 # Flutter/Dart/Pub related

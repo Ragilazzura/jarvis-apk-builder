@@ -8,12 +8,24 @@ class ASCARMaintenanceEngine:
     def __init__(self, base_dir="."):
         self.base_dir = os.path.abspath(base_dir)
         self.backup_dir = os.path.join(self.base_dir, ".ascar_backups")
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
+        
+        # 1. Coba baca dari Environment Variable biasa
         api_key = os.getenv("GEMINI_API_KEY", "").strip('"').strip("'")
+        
+        # 2. Jika kosong, lakukan Pembacaan Manual File .env di Root Proyek
+        if not api_key:
+            env_path = os.path.join(self.base_dir, ".env")
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip().startswith("GEMINI_API_KEY="):
+                                api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                break
+                except Exception as e:
+                    print(f"⚠️ [A.S.C.A.R.] Gagal membaca file .env manual: {e}")
+
+        # 3. Inisialisasi Client Gemini
         self.client = genai.Client(api_key=api_key) if api_key else None
 
     def create_backup(self, file_path: str) -> str:
