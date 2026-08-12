@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:image_picker/image_picker.dart';
 import 'hud_notification_service.dart';
+import 'services/telemetry_service.dart'; // 🛰️ IMPORT TELEMETRY SERVICE
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -178,6 +179,26 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     });
 
     _addMessage("jarvis", "Omni-Core Online. All systems unified, Boss.");
+
+    // 🌅 Pemicu Otomatis Morning Briefing via Telemetri HP
+    _triggerMorningBriefing();
+  }
+
+  // 🚀 FUNGSI PENARIK DATA TELEMETRI & BRIEFING
+  Future<void> _triggerMorningBriefing() async {
+    try {
+      final telemetry = TelemetryService(
+        baseUrl: serverUrl,
+        secretKey: "STARK_OVERRIDE_SECRET_2026", // 💡 Pastikan ini sama dengan CLIENT_SECRET_KEY di .env
+      );
+
+      String? briefingText = await telemetry.fetchMorningBriefing();
+      if (briefingText != null && mounted) {
+        _addMessage("jarvis", briefingText);
+      }
+    } catch (e) {
+      debugPrint("⚠️ Gagal memuat Morning Briefing: $e");
+    }
   }
 
   void _addMessage(String sender, String text, {File? image, Uint8List? imageBytes}) {
@@ -258,7 +279,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
-  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN (KEBAL DARI DUP-CHAT & SILENT ERROR)
+  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN
   Future<void> _sendMessage(String text, {bool isVoiceInput = false}) async {
     if (text.trim().isEmpty && _selectedImage == null) return;
 
@@ -584,7 +605,6 @@ class JarvisWebSocketService {
         onError: (error) {
           _isConnecting = false;
           debugPrint("📡 [WS OFFLINE]: Gagal terhubung ke server Railway. Coba lagi dalam 10s...");
-          // Reconnect lebih tenang setiap 10 detik tanpa crash
           Future.delayed(const Duration(seconds: 10), () => connect(onMessageReceived));
         },
         onDone: () {

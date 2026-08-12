@@ -542,9 +542,6 @@ def execute_terminal_command(command_str: str) -> str:
     except Exception as e:
         return f"🚨 *Execution Error:* {e}"
 
-# ==========================================
-# PROJECT VERONICA: LIVE BUG HUNTER ENGINE
-# ==========================================
 def veronica_auto_fix_bug(error_traceback: str):
     print("🛡️ [VERONICA] Fatal Error terdeteksi! Mengaktifkan A.S.C.A.R. Auto-Hotpatch...")
     
@@ -588,19 +585,7 @@ def veronica_auto_fix_bug(error_traceback: str):
         else:
             alert_text = f"🛡️ **[VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED]**\n\n{analysis}"
 
-        # 3. Kirim ke Telegram (Sebagai Backup)
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": alert_text,
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url, json=payload, timeout=10)
-        except Exception as e:
-            print(f"[!] Gagal kirim Veronica alert ke Telegram: {e}")
-
-        # 4. 🔥 Tembakkan juga ke HUD HP (Via Internal Endpoint)
+        # 3. 🔥 TEMBAKKAN KHUSUS KE JARVIS HUD HP (Via Proactive Alert Endpoint)
         try:
             local_port = os.getenv("PORT", 8080)
             requests.post(
@@ -609,6 +594,7 @@ def veronica_auto_fix_bug(error_traceback: str):
                 json={"alert_message": alert_text},
                 timeout=5
             )
+            print("✅ [VERONICA] Laporan deteksi & hotpatch berhasil dikirim ke Jarvis HUD!")
         except Exception as e:
             print(f"[!] Gagal mem-forward Veronica ke HUD: {e}")
 
@@ -1130,6 +1116,63 @@ def client_report_result(request: ClientReportRequest, authorization: str = Head
     LOCAL_COMMAND_RESULT = request.output
     print(f"💻 [STARK HYBRID] Laporan dari PC Lokal diterima: {request.output[:100]}...")
     return {"status": "received"}
+
+# ==============================================================================
+# 📱 MOBILE TELEMETRY & MORNING BRIEFING ENDPOINT
+# ==============================================================================
+@app.route("/client/telemetry_briefing", methods=["POST"])
+def client_telemetry_briefing():
+    """
+    Menerima data telemetri riil dari Flutter HUD (HP)
+    dan meracik Good Morning Briefing secara personal berbasis data HP.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header != CLIENT_SECRET_KEY:
+        return jsonify({"status": "ERROR", "message": "Unauthorized"}), 401
+
+    try:
+        data = request.json or {}
+        
+        # Data Sensor Riil dari HP
+        location_name = data.get("location", "Tidak diketahui")
+        temperature = data.get("temperature", "--")
+        weather_condition = data.get("weather", "Cerah")
+        battery_level = data.get("battery_level", "--")
+        is_charging = data.get("is_charging", False)
+        calendar_events = data.get("events", [])
+        
+        charging_status = "sedang diisi daya" if is_charging else "menggunakan baterai"
+        events_str = ", ".join(calendar_events) if calendar_events else "Tidak ada agenda khusus tercatat."
+
+        # Racik Prompt Berdasarkan Data Sensor HP
+        prompt = f"""
+[SYSTEM PROTOCOL: MOBILE-FIRST GOOD MORNING BRIEFING]
+Kamu adalah J.A.R.V.I.S., asisten pribadi canggih. Susun Good Morning Briefing untuk Bos dalam gaya bahasa yang elegan, efisien, dan siap tempur.
+
+DATA REAL LOKAL HP BOS SAAT INI:
+- Lokasi: {location_name}
+- Cuaca & Suhu: {weather_condition}, {temperature}°C
+- Baterai HP: {battery_level}% ({charging_status})
+- Agenda Hari Ini: {events_str}
+
+TUGAS:
+1. Sapa Bos dengan hangat dan profesional.
+2. Laporkan kondisi lingkungan lokal (lokasi, cuaca) & status baterai HP secara alami.
+3. Ingatkan agenda hari ini jika ada.
+4. Berikan pesan motivasi singkat khas kesiapan J.A.R.V.I.S.
+JANGAN meminta data tambahan lagi.
+"""
+        briefing_text = ask_jarvis(prompt)
+        
+        # Kirimkan balasan berupa laporan siap cetak ke HUD
+        return jsonify({
+            "status": "SUCCESS",
+            "briefing_message": f"🌅 **[GOOD MORNING BRIEFING - MOBILE INTEL]**\n\n{briefing_text}"
+        }), 200
+
+    except Exception as e:
+        print(f"🚨 [TELEMETRY ERROR]: {e}")
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
 
 @web_app.post("/client/proactive_alert")
 async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
