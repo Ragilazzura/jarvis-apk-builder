@@ -1,1 +1,1 @@
-worker: python jarvis_master.py
+web: python bootstrapper.py
