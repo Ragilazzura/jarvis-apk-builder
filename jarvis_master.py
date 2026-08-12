@@ -837,32 +837,30 @@ def route_natural_language_command(user_message: str) -> dict:
             "reply": "🛡️ [A.S.C.A.R. INITIATED]: Memulai pemindaian mendalam seluruh repositori JARVIS-AGENT di PC lokal..."
         }    
 
-    # 🩺 PROTOKOL V.E.R.I.T.A.S. (KHUSUS JARVIS HUD HP)
+    # 🩺 PROTOKOL V.E.R.I.T.A.S. (KIRA SERVER & PC LOKAL)
     elif any(k in msg_lower for k in ["veritas", "audit sistem", "cek kesehatan", "system audit", "audit jarvis"]):
+        # 1. Kirim Perintah ke PC Lokal (VS Code) via Antrean Polling
+        payload = {"type": "RUN_VERITAS_DIAGNOSTIC"}
+        LOCAL_COMMAND_QUEUE.append(payload) # 👈 Supaya jarvis_client.py di PC ikut cetak di VS Code!
+
+        # 2. Jalankan juga Audit Server Railway di Background
         def run_async_veritas():
-            print("\n🚀 [V.E.R.I.T.A.S. THREAD] Background audit thread started!", flush=True)
-            try:
-                from stark_diagnostic import StarkDiagnosticSuite
-                suite = StarkDiagnosticSuite()
-                report_text = suite.run_full_audit()
+            from stark_diagnostic import StarkDiagnosticSuite
+            suite = StarkDiagnosticSuite()
+            report_text = suite.run_full_audit()
 
-                print("📡 [V.E.R.I.T.A.S. THREAD] Delivering diagnostic report to HUD HP...", flush=True)
-                local_port = os.getenv("PORT", 8080)
-                resp = requests.post(
-                    f"http://127.0.0.1:{local_port}/client/proactive_alert",
-                    headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
-                    json={"alert_message": report_text},
-                    timeout=60
-                )
-                print(f"✅ [V.E.R.I.T.A.S. THREAD] Report delivered to HUD! (Status: {resp.status_code})\n", flush=True)
-
-            except Exception as e:
-                print(f"🚨 [V.E.R.I.T.A.S. THREAD ERROR]: Gagal mengeksekusi audit -> {e}\n", flush=True)
+            local_port = os.getenv("PORT", 8080)
+            requests.post(
+                f"http://127.0.0.1:{local_port}/client/proactive_alert",
+                headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                json={"alert_message": report_text},
+                timeout=60
+            )
 
         threading.Thread(target=run_async_veritas, daemon=True).start()
         return {
             "status": "EXECUTE", 
-            "reply": "🩺 **[PROJECT V.E.R.I.T.A.S. INITIATED]**\nMemulai pemeriksaan total seluruh organ internal J.A.R.V.I.S., Sir..."
+            "reply": "🩺 **[PROJECT V.E.R.I.T.A.S. INITIATED]**\nMemulai pemeriksaan total organ internal J.A.R.V.I.S. (Cloud & PC Lokal), Sir..."
         }
 
     return {"status": "CHAT_ONLY"}
