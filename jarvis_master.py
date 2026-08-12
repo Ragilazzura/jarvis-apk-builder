@@ -546,47 +546,74 @@ def execute_terminal_command(command_str: str) -> str:
 # PROJECT VERONICA: LIVE BUG HUNTER ENGINE
 # ==========================================
 def veronica_auto_fix_bug(error_traceback: str):
-    print("🛡️ [VERONICA] Fatal Error terdeteksi! Menganalisis penyebab crash...")
+    print("🛡️ [VERONICA] Fatal Error terdeteksi! Mengaktifkan A.S.C.A.R. Auto-Hotpatch...")
     
-    prompt = f"""
-[VERONICA PROTOCOL: SYSTEM CRASH ANALYSIS]
-Sistem telah mengalami fatal error. Berikut adalah DATA STACKTRACE ERROR RESMI:
-
---- STACKTRACE START ---
-{error_traceback}
---- STACKTRACE END ---
-
-Tugasmu sebagai VERONICA:
-1. Jelaskan secara singkat dan tepat mengapa error di atas bisa terjadi.
-2. Berikan potongan kode perbaikannya (Patch Code) yang siap dipasang.
-3. Berikan saran pencegahan singkat.
-4. JANGAN meminta data tambahan lagi. Langsung sajikan analisis dan Patch Code sekarang.
-"""
-    fix_suggestion = ask_jarvis(prompt)
-    alert_text = f"🛡️ *VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED!*\n\n{fix_suggestion}"
+    # 1. Minta AI Menganalisis & Menentukan File Yang Bermasalah
+    prompt = (
+        f"[VERONICA PROTOCOL: RUNTIME CRASH ANALYSIS]\n"
+        f"Terjadi crash pada sistem. Berikut stack trace error-nya:\n\n"
+        f"{error_traceback}\n\n"
+        f"Tugasmu:\n"
+        f"1. Sebutkan NAMA FILE Python yang menjadi sumber error utama (contoh: jarvis_master.py) di baris paling pertama (HANYA nama file murni tanpa markdown atau tanda petik).\n"
+        f"2. Di baris berikutnya, berikan penjelasan singkat dan ringkas mengapa error terjadi."
+    )
     
-    # 1. Kirim ke Telegram (Sebagai Backup)
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": alert_text
-    }
     try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Gagal kirim Veronica alert ke Telegram: {e}")
+        analysis = ask_jarvis(prompt)
+        lines = [line.strip() for line in analysis.strip().split('\n') if line.strip()]
+        
+        target_file = ""
+        if lines:
+            target_file = lines[0].replace('`', '').replace("'", "").replace('"', '').strip()
 
-    # 2. 🔥 Tembakkan juga ke HUD HP (Via Internal Endpoint)
-    try:
-        local_port = os.getenv("PORT", 8080)
-        requests.post(
-            f"http://127.0.0.1:{local_port}/client/proactive_alert",
-            headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
-            json={"alert_message": alert_text},
-            timeout=5
-        )
+        healed = False
+        heal_msg = ""
+
+        # 2. Panggil A.S.C.A.R. jika file lokal ditemukan
+        if target_file and os.path.exists(target_file) and target_file.endswith('.py'):
+            from ascar_engine import ASCARMaintenanceEngine
+            engine = ASCARMaintenanceEngine()
+            
+            print(f"🔧 [VERONICA ➔ A.S.C.A.R.] Memperbaiki berkas: {target_file}")
+            healed, heal_msg = engine.auto_repair_file(target_file, error_traceback)
+            
+            status_symbol = "✅ HOTPATCH SUCCESS" if healed else "🚨 HOTPATCH FAILED (ROLLBACKED)"
+            alert_text = (
+                f"🛡️ **[VERONICA ➔ A.S.C.A.R. AUTONOMOUS HOTPATCH]**\n"
+                f"*Status:* `{status_symbol}`\n"
+                f"*File Target:* `{target_file}`\n"
+                f"*Log:* `{heal_msg}`\n\n"
+                f"📄 *Detail Error Trace:* `{error_traceback[-250:].strip()}`"
+            )
+        else:
+            alert_text = f"🛡️ **[VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED]**\n\n{analysis}"
+
+        # 3. Kirim ke Telegram (Sebagai Backup)
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": ALLOWED_CHAT_ID,
+            "text": alert_text,
+            "parse_mode": "Markdown"
+        }
+        try:
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"[!] Gagal kirim Veronica alert ke Telegram: {e}")
+
+        # 4. 🔥 Tembakkan juga ke HUD HP (Via Internal Endpoint)
+        try:
+            local_port = os.getenv("PORT", 8080)
+            requests.post(
+                f"http://127.0.0.1:{local_port}/client/proactive_alert",
+                headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                json={"alert_message": alert_text},
+                timeout=5
+            )
+        except Exception as e:
+            print(f"[!] Gagal mem-forward Veronica ke HUD: {e}")
+
     except Exception as e:
-        print(f"[!] Gagal mem-forward Veronica ke HUD: {e}")
+        print(f"🚨 [VERONICA HOTPATCH ERROR]: {e}")
 
 def veronica_global_exception_handler(exctype, value, tb):
     error_msg = "".join(traceback.format_exception(exctype, value, tb))
