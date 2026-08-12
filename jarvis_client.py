@@ -220,7 +220,7 @@ def process_command(data):
             resp = requests.post(
                 f"{RAILWAY_SERVER_URL}/client/proactive_alert",
                 headers={
-                    "Authorization": CLIENT_SECRET_KEY, 
+                    "Authorization": CLIENT_SECRET,
                     "Content-Type": "application/json"
                 },
                 json={"alert_message": report_msg},
