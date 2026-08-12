@@ -7,20 +7,26 @@ import gc
 import traceback
 
 class StarkDiagnosticSuite:
-    def __init__():
+    def __init__(self):
         self.results = {}
 
     def log_result(self, feature_name: str, passed: bool, details: str):
         symbol = "✅ PASSED" if passed else "🚨 FAILED"
         self.results[feature_name] = {"status": symbol, "details": details}
+        # 🔊 CETAK INSTAN KE TERMINAL RAILWAY
+        print(f"   └─ {symbol}: {details}\n", flush=True)
 
-    # 1. UJI OTAR UTAMA (GEMINI API)
+    # 1. UJI OTAK UTAMA (GEMINI API)
     def test_gemini_api(self):
+        print("🩺 [V.E.R.I.T.A.S. 1/6] Testing Gemini AI Core Engine...", flush=True)
         try:
-            from jarvis_master import ask_jarvis
-            res = ask_jarvis("Tes diagnostik V.E.R.I.T.A.S. Jawab HANYA satu kata: 'ONLINE'")
-            if res and len(res.strip()) > 0:
-                self.log_result("Gemini AI Core Engine", True, f"API Responsif: '{res.strip()[:30]}...'")
+            from jarvis_master import client
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents="Ping"
+            )
+            if response and response.text:
+                self.log_result("Gemini AI Core Engine", True, "API Responsif & Kuota Aktif.")
             else:
                 self.log_result("Gemini AI Core Engine", False, "Menerima respons kosong dari API.")
         except Exception as e:
@@ -28,6 +34,7 @@ class StarkDiagnosticSuite:
 
     # 2. UJI MEMORI SQLITE
     def test_sqlite_db(self):
+        print("🩺 [V.E.R.I.T.A.S. 2/6] Testing SQLite Long-Term Memory...", flush=True)
         try:
             from jarvis_master import MEMORY_DB_PATH
             if os.path.exists(MEMORY_DB_PATH):
@@ -36,7 +43,7 @@ class StarkDiagnosticSuite:
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
                 tables = cursor.fetchall()
                 conn.close()
-                self.log_result("SQLite Long-Term Memory", True, f"Tabel DB terverifikasi ({len(tables)} tabel).")
+                self.log_result("SQLite Long-Term Memory", True, f"Database terverifikasi ({len(tables)} tabel).")
             else:
                 self.log_result("SQLite Long-Term Memory", False, "Berkas database SQLite tidak ditemukan.")
         except Exception as e:
@@ -44,6 +51,7 @@ class StarkDiagnosticSuite:
 
     # 3. UJI MEMORI VEKTOR (CHROMADB)
     def test_chroma_vector_db(self):
+        print("🩺 [V.E.R.I.T.A.S. 3/6] Testing ChromaDB Vector Palace...", flush=True)
         try:
             from jarvis_master import vector_collection
             count = vector_collection.count()
@@ -53,6 +61,7 @@ class StarkDiagnosticSuite:
 
     # 4. UJI SINTESIS AUDIO (gTTS)
     def test_tts_engine(self):
+        print("🩺 [V.E.R.I.T.A.S. 4/6] Testing gTTS Audio Synthesizer...", flush=True)
         try:
             from jarvis_master import generate_gtts_base64_sync
             audio_b64 = generate_gtts_base64_sync("V.E.R.I.T.A.S. Audio Test")
@@ -65,6 +74,7 @@ class StarkDiagnosticSuite:
 
     # 5. UJI SENSOR HARDWARE (psutil)
     def test_hardware_metrics(self):
+        print("🩺 [V.E.R.I.T.A.S. 5/6] Testing Hardware Telemetry Sensor...", flush=True)
         try:
             cpu = psutil.cpu_percent()
             ram = psutil.virtual_memory().percent
@@ -74,6 +84,7 @@ class StarkDiagnosticSuite:
 
     # 6. UJI HEPHAESTUS GIT ENGINE
     def test_git_pipeline(self):
+        print("🩺 [V.E.R.I.T.A.S. 6/6] Testing Hephaestus Git CLI Engine...", flush=True)
         try:
             res = subprocess.run(["git", "status"], capture_output=True, text=True, timeout=5)
             if res.returncode == 0:
@@ -83,9 +94,11 @@ class StarkDiagnosticSuite:
         except Exception as e:
             self.log_result("Hephaestus Git CLI Engine", False, f"Git Execution Error: {e}")
 
-    # 7. EXEKUSI AUDIT MENYELURUH
+    # 7. EKSEKUSI AUDIT MENYELURUH
     def run_full_audit(self) -> str:
-        print("\n🩺 [V.E.R.I.T.A.S.] Starting Full System Diagnostic...\n")
+        print("\n🩺 ========================================================", flush=True)
+        print("🩺 [PROJECT V.E.R.I.T.A.S.] Executing System Inspection...", flush=True)
+        print("🩺 ========================================================\n", flush=True)
 
         self.test_gemini_api()
         self.test_sqlite_db()
@@ -96,6 +109,8 @@ class StarkDiagnosticSuite:
 
         total_tests = len(self.results)
         passed_tests = sum(1 for v in self.results.values() if "PASSED" in v["status"])
+
+        print(f"🩺 [V.E.R.I.T.A.S. AUDIT COMPLETE] Result: {passed_tests}/{total_tests} Verified.\n", flush=True)
 
         report_lines = [
             "🩺 **[PROJECT V.E.R.I.T.A.S. DIAGNOSTIC REPORT]**",

@@ -840,21 +840,24 @@ def route_natural_language_command(user_message: str) -> dict:
     # 🩺 PROTOKOL V.E.R.I.T.A.S. (KHUSUS JARVIS HUD HP)
     elif any(k in msg_lower for k in ["veritas", "audit sistem", "cek kesehatan", "system audit", "audit jarvis"]):
         def run_async_veritas():
-            from stark_diagnostic import StarkDiagnosticSuite
-            suite = StarkDiagnosticSuite()
-            report_text = suite.run_full_audit()
-
-            # 🔥 TEMBAKKAN LANGSUNG KE JARVIS HUD HP
+            print("\n🚀 [V.E.R.I.T.A.S. THREAD] Background audit thread started!", flush=True)
             try:
+                from stark_diagnostic import StarkDiagnosticSuite
+                suite = StarkDiagnosticSuite()
+                report_text = suite.run_full_audit()
+
+                print("📡 [V.E.R.I.T.A.S. THREAD] Delivering diagnostic report to HUD HP...", flush=True)
                 local_port = os.getenv("PORT", 8080)
-                requests.post(
+                resp = requests.post(
                     f"http://127.0.0.1:{local_port}/client/proactive_alert",
                     headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
                     json={"alert_message": report_text},
-                    timeout=600
+                    timeout=60
                 )
+                print(f"✅ [V.E.R.I.T.A.S. THREAD] Report delivered to HUD! (Status: {resp.status_code})\n", flush=True)
+
             except Exception as e:
-                print(f"🚨 [VERITAS ERROR]: Gagal mem-forward laporan ke HUD: {e}")
+                print(f"🚨 [V.E.R.I.T.A.S. THREAD ERROR]: Gagal mengeksekusi audit -> {e}\n", flush=True)
 
         threading.Thread(target=run_async_veritas, daemon=True).start()
         return {
