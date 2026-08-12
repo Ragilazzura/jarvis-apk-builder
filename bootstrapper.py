@@ -6,7 +6,9 @@ import re
 import glob
 import gc
 
-# Config & Limits
+# Memaksa Python agar tidak menahan output di buffer
+os.environ["PYTHONUNBUFFERED"] = "1"
+
 MAX_CONSECUTIVE_CRASHES = 5
 RESTART_DELAY = 3  # Detik
 
@@ -39,7 +41,7 @@ def extract_target_file_from_traceback(stderr_text):
 def run_veronica_outer_shield():
     print("🛡️ ==============================================================", flush=True)
     print("🛡️ [VERONICA & A.S.C.A.R. LEVEL 4 PRE-FLIGHT SHIELD ONLINE]", flush=True)
-    print("🛡️ Multi-Module Watchdog & Real-Time Terminal Log Active", flush=True)
+    print("🛡️ Direct Terminal Output & Multi-Module Watchdog Active", flush=True)
     print("🛡️ ==============================================================\n", flush=True)
 
     crash_count = 0
@@ -47,28 +49,17 @@ def run_veronica_outer_shield():
     while True:
         print("🚀 [BOOTSTRAPPER] Starting Child Process: jarvis_master.py ...\n", flush=True)
         
-        # 🔥 GABUNGKAN STDOUT & STDERR (stderr=subprocess.STDOUT) AGAR SEMUA PRINT MUNCUL DI TERMINAL
+        # ⚡ STDOUT DILEPAS DIRECT KE TERMINAL RAILWAY (TANPA PIPE BUFFER)
+        # STDERR TETAP DITANGKAP KHUSUS UNTUK A.S.C.A.R. SAAT CRASH
         process = subprocess.Popen(
             [sys.executable, "-u", "jarvis_master.py"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
+            stderr=subprocess.PIPE,
+            text=True
         )
 
-        output_lines = []
-
-        # Stream SELURUH output (Print biasa + Crash Log) secara real-time ke Railway Terminal
-        if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                if line:
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    output_lines.append(line)
-
-        process.wait()
+        # Tunggu sampai proses selesai / crash
+        _, stderr_output = process.communicate()
         return_code = process.returncode
-        full_output = "".join(output_lines)
 
         # 1. PERHENTIAN NORMAL
         if return_code == 0:
@@ -77,16 +68,18 @@ def run_veronica_outer_shield():
 
         crash_count += 1
         print(f"\n🚨 [CRASH DETECTED] Process exited with Return Code: {return_code}", flush=True)
+        if stderr_output:
+            print(f"📄 [CRASH TRACEBACK]:\n{stderr_output}", flush=True)
 
         # 2. PENANGANAN CRASH OOM (OUT OF MEMORY - EXIT CODE 137)
-        if return_code == 137 or "MemoryError" in full_output:
+        if return_code == 137 or "MemoryError" in (stderr_output or ""):
             print("⚠️ [VERONICA EMERGENCY] Out Of Memory (OOM / Code 137) terdeteksi!", flush=True)
             clean_temporary_junk()
             os.environ["LOW_MEMORY_MODE"] = "1"
 
         # 3. PENANGANAN RUNTIME / STARTUP / SYNTAX CRASH VIA A.S.C.A.R.
         else:
-            target_file = extract_target_file_from_traceback(full_output)
+            target_file = extract_target_file_from_traceback(stderr_output or "")
             print(f"🎯 [VERONICA TARGETING] Melacak sumber error ke berkas: `{target_file}`", flush=True)
             print("🔧 [A.S.C.A.R.] Mengaktifkan Autonomous Hotpatch Engine...", flush=True)
 
@@ -94,7 +87,7 @@ def run_veronica_outer_shield():
                 from ascar_engine import ASCARMaintenanceEngine
                 engine = ASCARMaintenanceEngine()
 
-                healed, heal_msg = engine.auto_repair_file(target_file, full_output)
+                healed, heal_msg = engine.auto_repair_file(target_file, stderr_output or "")
                 status_str = "SUCCESS" if healed else "FAILED/ROLLBACKED"
                 print(f"🛠️ [A.S.C.A.R. RESULT - {status_str}]: {heal_msg}", flush=True)
 
