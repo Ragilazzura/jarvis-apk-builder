@@ -837,6 +837,31 @@ def route_natural_language_command(user_message: str) -> dict:
             "reply": "🛡️ [A.S.C.A.R. INITIATED]: Memulai pemindaian mendalam seluruh repositori JARVIS-AGENT di PC lokal..."
         }    
 
+    # 🩺 PROTOKOL V.E.R.I.T.A.S. (KHUSUS JARVIS HUD HP)
+    elif any(k in msg_lower for k in ["veritas", "audit sistem", "cek kesehatan", "system audit", "audit jarvis"]):
+        def run_async_veritas():
+            from stark_diagnostic import StarkDiagnosticSuite
+            suite = StarkDiagnosticSuite()
+            report_text = suite.run_full_audit()
+
+            # 🔥 TEMBAKKAN LANGSUNG KE JARVIS HUD HP
+            try:
+                local_port = os.getenv("PORT", 8080)
+                requests.post(
+                    f"http://127.0.0.1:{local_port}/client/proactive_alert",
+                    headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                    json={"alert_message": report_text},
+                    timeout=10
+                )
+            except Exception as e:
+                print(f"🚨 [VERITAS ERROR]: Gagal mem-forward laporan ke HUD: {e}")
+
+        threading.Thread(target=run_async_veritas, daemon=True).start()
+        return {
+            "status": "EXECUTE", 
+            "reply": "🩺 **[PROJECT V.E.R.I.T.A.S. INITIATED]**\nMemulai pemeriksaan total seluruh organ internal J.A.R.V.I.S., Sir..."
+        }
+
     return {"status": "CHAT_ONLY"}
 
 # ==========================================
@@ -1207,6 +1232,20 @@ async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str
 
 class ProactiveAlertRequest(BaseModel):
     alert_message: str
+
+# ==============================================================================
+# 🩺 PROJECT V.E.R.I.T.A.S. AUDIT ENDPOINT (JARVIS HUD ONLY)
+# ==============================================================================
+@web_app.get("/client/audit")
+def client_veritas_audit():
+    """Endpoint Fast Audit khusus untuk Jarvis HUD HP"""
+    try:
+        from stark_diagnostic import StarkDiagnosticSuite
+        suite = StarkDiagnosticSuite()
+        report_text = suite.run_full_audit()
+        return {"status": "SUCCESS", "report": report_text}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 @web_app.exception_handler(Exception)
 async def global_fastapi_exception_handler(request: Request, exc: Exception):
