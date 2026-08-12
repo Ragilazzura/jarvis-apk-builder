@@ -1118,28 +1118,33 @@ def client_report_result(request: ClientReportRequest, authorization: str = Head
     return {"status": "received"}
 
 # ==============================================================================
-# 📱 MOBILE TELEMETRY & MORNING BRIEFING ENDPOINT
+# 📱 MOBILE TELEMETRY & MORNING BRIEFING ENDPOINT (FASTAPI VERSION)
 # ==============================================================================
-@app.route("/client/telemetry_briefing", methods=["POST"])
-def client_telemetry_briefing():
+class TelemetryRequest(BaseModel):
+    location: Optional[str] = "Tidak diketahui"
+    temperature: Optional[str] = "--"
+    weather: Optional[str] = "Cerah"
+    battery_level: Optional[int] = 0
+    is_charging: Optional[bool] = False
+    events: Optional[list] = []
+
+@web_app.post("/client/telemetry_briefing")
+async def client_telemetry_briefing(req: TelemetryRequest, authorization: str = Header(None)):
     """
     Menerima data telemetri riil dari Flutter HUD (HP)
     dan meracik Good Morning Briefing secara personal berbasis data HP.
     """
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header != CLIENT_SECRET_KEY:
-        return jsonify({"status": "ERROR", "message": "Unauthorized"}), 401
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        data = request.json or {}
-        
         # Data Sensor Riil dari HP
-        location_name = data.get("location", "Tidak diketahui")
-        temperature = data.get("temperature", "--")
-        weather_condition = data.get("weather", "Cerah")
-        battery_level = data.get("battery_level", "--")
-        is_charging = data.get("is_charging", False)
-        calendar_events = data.get("events", [])
+        location_name = req.location
+        temperature = req.temperature
+        weather_condition = req.weather
+        battery_level = req.battery_level
+        is_charging = req.is_charging
+        calendar_events = req.events or []
         
         charging_status = "sedang diisi daya" if is_charging else "menggunakan baterai"
         events_str = ", ".join(calendar_events) if calendar_events else "Tidak ada agenda khusus tercatat."
@@ -1164,15 +1169,14 @@ JANGAN meminta data tambahan lagi.
 """
         briefing_text = ask_jarvis(prompt)
         
-        # Kirimkan balasan berupa laporan siap cetak ke HUD
-        return jsonify({
+        return {
             "status": "SUCCESS",
             "briefing_message": f"🌅 **[GOOD MORNING BRIEFING - MOBILE INTEL]**\n\n{briefing_text}"
-        }), 200
+        }
 
     except Exception as e:
         print(f"🚨 [TELEMETRY ERROR]: {e}")
-        return jsonify({"status": "ERROR", "message": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 @web_app.post("/client/proactive_alert")
 async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str = Header(None)):
