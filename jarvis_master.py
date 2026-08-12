@@ -825,6 +825,23 @@ def route_natural_language_command(user_message: str) -> dict:
         is_success, log_msg, file_path = generate_and_test_code(user_message)
         return {"status": "EXECUTE", "reply": f"📝 Code Agent Report: {log_msg}"}
 
+    # 🧪 PEMICU SIMULASI BUG / CRASH UNTUK V.E.R.O.N.I.C.A.
+    elif any(k in msg_lower for k in ["test bug", "simulasi bug", "pemicu crash", "testbug"]):
+        def trigger_simulated_crash():
+            try:
+                # Sengaja memicu ZeroDivisionError di latar belakang
+                _ = 100 / 0
+            except Exception:
+                import traceback
+                error_msg = traceback.format_exc()
+                veronica_auto_fix_bug(error_msg)
+
+        threading.Thread(target=trigger_simulated_crash, daemon=True).start()
+        return {
+            "status": "EXECUTE", 
+            "reply": "🧪 [SIMULASI CRASH DIPICU]: Memperhatikan respons otomatis V.E.R.O.N.I.C.A. & A.S.C.A.R. secara real-time..."
+        }
+
     # 🛡️ PROTOKOL A.S.C.A.R. (SELF-MAINTENANCE ENGINE)
     elif any(k in msg_lower for k in ["ascar", "audit sistem", "periksa kode", "cek repositori", "ascar run"]):
         payload = {"type": "RUN_ASCAR_DIAGNOSTIC"}
