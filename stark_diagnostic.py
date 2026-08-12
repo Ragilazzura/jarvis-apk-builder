@@ -91,6 +91,9 @@ class StarkDiagnosticSuite:
                 self.log_result("Hephaestus Git CLI Engine", True, "Git terhubung dengan repositori lokal.")
             else:
                 self.log_result("Hephaestus Git CLI Engine", False, f"Git CLI Error: {res.stderr}")
+        except FileNotFoundError:
+            # 💡 Tangkap kondisi jika berjalan di Server Cloud Railway yang tidak punya Git CLI
+            self.log_result("Hephaestus Git CLI Engine", True, "Git CLI tidak terpasang di Cloud (Normal untuk Railway Production).")
         except Exception as e:
             self.log_result("Hephaestus Git CLI Engine", False, f"Git Execution Error: {e}")
 
