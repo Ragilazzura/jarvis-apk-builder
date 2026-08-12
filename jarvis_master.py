@@ -851,7 +851,7 @@ def route_natural_language_command(user_message: str) -> dict:
                     f"http://127.0.0.1:{local_port}/client/proactive_alert",
                     headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
                     json={"alert_message": report_text},
-                    timeout=10
+                    timeout=600
                 )
             except Exception as e:
                 print(f"🚨 [VERITAS ERROR]: Gagal mem-forward laporan ke HUD: {e}")
