@@ -6,8 +6,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   battery_plus
   file_selector_windows
-  flutter_tts
   geolocator_windows
+  screen_brightness_windows
   speech_to_text_windows
   url_launcher_windows
 )

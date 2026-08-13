@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -13,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // 💾 Storage lok
 import 'package:flutter_markdown/flutter_markdown.dart'; // 📝 Render Markdown
 import 'hud_notification_service.dart';
 import 'services/telemetry_service.dart';
+import 'services/device_control_service.dart'; // 🕹️ Local Device Control Service
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -382,7 +382,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
-  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN
+  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN & LOCAL DEVICE COMMAND PARSER
   Future<void> _sendMessage(String text, {bool isVoiceInput = false}) async {
     if (text.trim().isEmpty && _selectedImage == null) return;
 
@@ -392,7 +392,85 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
 
     String userMsg = text.trim();
+    String lowerMsg = userMsg.toLowerCase();
     File? imageToSend = _selectedImage;
+
+    // -------------------------------------------------------------
+    // 🧠 LOCAL COMMAND PARSER (RESPONS INTERNAL HARMONIS LOKAL HP)
+    // -------------------------------------------------------------
+
+    // 🔦 1. KONTROL SENTER
+    if (lowerMsg.contains("nyalakan senter") || lowerMsg.contains("hidupkan senter")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.toggleTorch(true);
+      _addMessage("jarvis", res);
+      return;
+    } else if (lowerMsg.contains("matikan senter") || lowerMsg.contains("padamkan senter")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.toggleTorch(false);
+      _addMessage("jarvis", res);
+      return;
+    }
+
+    // 📊 2. DIAGNOSA STORAGE / MEMORI HP
+    if (lowerMsg.contains("cek storage") || lowerMsg.contains("cek penyimpanan") || lowerMsg.contains("diagnosa memori") || lowerMsg.contains("status memori")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.checkStorageDiagnostics();
+      _addMessage("jarvis", res);
+      return;
+    }
+
+    // 🚀 3. LAUNCH APLIKASI UTAMA
+    if (lowerMsg.startsWith("buka spotify")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.launchExternalApp(
+        packageName: "com.spotify.music",
+        appName: "Spotify",
+      );
+      _addMessage("jarvis", res);
+      return;
+    } else if (lowerMsg.startsWith("buka youtube")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.launchExternalApp(
+        packageName: "com.google.android.youtube",
+        appName: "YouTube",
+      );
+      _addMessage("jarvis", res);
+      return;
+    } else if (lowerMsg.startsWith("buka whatsapp") || lowerMsg.startsWith("buka wa")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.launchExternalApp(
+        packageName: "com.whatsapp",
+        appName: "WhatsApp",
+      );
+      _addMessage("jarvis", res);
+      return;
+    }
+
+    // 🔊 4. KONTROL VOLUME (MUTED / VOLUME SETTING)
+    if (lowerMsg.contains("mute hp") || lowerMsg.contains("heningkan hp") || lowerMsg.contains("matikan suara")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.setVolume(0.0);
+      _addMessage("jarvis", res);
+      return;
+    } else if (lowerMsg.contains("volume max") || lowerMsg.contains("volume penuh") || lowerMsg.contains("volume 100")) {
+      _addMessage("user", userMsg);
+      _controller.clear();
+      String res = await DeviceControlService.setVolume(1.0);
+      _addMessage("jarvis", res);
+      return;
+    }
+
+    // -------------------------------------------------------------
+    // 🌐 JIKA BUKAN PERINTAH LOKAL, KIRIM KE SERVER RAILWAY CLOUD
+    // -------------------------------------------------------------
 
     _addMessage("user", userMsg.isEmpty ? "[Mengirim Gambar]" : userMsg, image: imageToSend);
     _controller.clear();

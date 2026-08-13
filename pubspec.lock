@@ -185,6 +185,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.14"
+  disk_space_plus:
+    dependency: "direct main"
+    description:
+      name: disk_space_plus
+      sha256: "1e454599a7dcec0c0bc1ad0b7f9f563b3fffbc988175bd452c4d3c7503ed3423"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.2.6"
+  external_app_launcher:
+    dependency: "direct main"
+    description:
+      name: external_app_launcher
+      sha256: fb55cddd706c62ede11056750d5e018ef379820e09739e967873211dd537d833
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.1.0"
   fake_async:
     dependency: transitive
     description:
@@ -315,14 +331,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  flutter_tts:
-    dependency: "direct main"
-    description:
-      name: flutter_tts
-      sha256: ce5eb209b40e95f2f4a1397116c87ab2fcdff32257d04ed7a764e75894c03775
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.2.5"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
@@ -712,6 +720,62 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0"
+  screen_brightness:
+    dependency: "direct main"
+    description:
+      name: screen_brightness
+      sha256: e0edf92c08889e8f493cde291e7c687db2b4a1471f2371c074070b75d7c7d79b
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.11"
+  screen_brightness_android:
+    dependency: transitive
+    description:
+      name: screen_brightness_android
+      sha256: "2008ad8e9527cc968f7a4de1ec58b476d495b3c612a149dbd6550c4f046da147"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.6"
+  screen_brightness_ios:
+    dependency: transitive
+    description:
+      name: screen_brightness_ios
+      sha256: "352d355e8523a186ba1e494b74218e5ca96e51975a0630b8ed89fbb7ff609762"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.4"
+  screen_brightness_macos:
+    dependency: transitive
+    description:
+      name: screen_brightness_macos
+      sha256: b0957237b842d846a84363b69f229b339a8f91faced55041e245b2ebff7b0142
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.4"
+  screen_brightness_ohos:
+    dependency: transitive
+    description:
+      name: screen_brightness_ohos
+      sha256: "569a2c97909a50894b81487619eb7654f5358443a5af05f840c19261f49c0940"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.4"
+  screen_brightness_platform_interface:
+    dependency: transitive
+    description:
+      name: screen_brightness_platform_interface
+      sha256: "2de60c0ba569b898950029cc1f7e9dd72bda44a22beb5054aac331cb6fce2ff2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.2"
+  screen_brightness_windows:
+    dependency: transitive
+    description:
+      name: screen_brightness_windows
+      sha256: "368b9c822e1671de81616e48150006e39eff2a434957e47ee638b09a32b2297c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.2"
   shared_preferences:
     dependency: "direct main"
     description:
@@ -861,6 +925,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.9.4"
+  torch_light:
+    dependency: "direct main"
+    description:
+      name: torch_light
+      sha256: a1397443a375c6991151547cb77361085df6cf8aa59999292e683db7385a0d15
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.0"
   typed_data:
     dependency: transitive
     description:
@@ -965,6 +1037,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "15.2.0"
+  volume_controller:
+    dependency: "direct main"
+    description:
+      name: volume_controller
+      sha256: c71d4c62631305df63b72da79089e078af2659649301807fa746088f365cb48e
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.8"
   web:
     dependency: transitive
     description:
