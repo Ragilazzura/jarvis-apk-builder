@@ -24,11 +24,19 @@ dependencies:
   timezone: ^0.9.4
   web_socket_channel: ^3.0.1
   image_picker: ^1.1.2
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/jarvis.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true

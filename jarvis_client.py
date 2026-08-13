@@ -235,6 +235,27 @@ def process_command(data):
 
         return {"output": "A.S.C.A.R. Diagnostic execution completed."}
 
+    # Di dalam pemrosesan command antrean lokal jarvis_client.py:
+    if command_type == "INSPECT_DART_FRONTEND":
+        print("\n🩺 [CLIENT ENGINE] Menjalankan A.S.C.A.R. Dart Pre-Flight Inspector...", flush=True)
+        from ascar_engine import ASCARMaintenanceEngine
+        
+        engine = ASCARMaintenanceEngine()
+        success, result_msg = engine.inspect_and_patch_dart()
+        
+        print(f"📄 [INSPECTION RESULT]: {result_msg}\n", flush=True)
+        
+        # Kirim balik hasilnya ke HUD HP Bos via Proactive Alert / Alert Endpoint
+        try:
+            requests.post(
+                f"{SERVER_URL}/client/proactive_alert",
+                headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                json={"alert_message": result_msg},
+                timeout=10
+            )
+        except Exception as e:
+            print(f"🚨 Gagal mengirim laporan Dart Inspector ke HUD: {e}", flush=True)
+
     return {"output": f"Unknown command: {cmd_type}"}
 
 # ==========================================

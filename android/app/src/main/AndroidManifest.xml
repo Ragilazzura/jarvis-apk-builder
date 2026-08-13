@@ -58,7 +58,7 @@
     </queries>
 
     <application
-        android:label="jarvis_agent"
+        android:label="Jarvis"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

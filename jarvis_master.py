@@ -837,6 +837,16 @@ def route_natural_language_command(user_message: str) -> dict:
             "reply": "🛡️ [A.S.C.A.R. INITIATED]: Memulai pemindaian mendalam seluruh repositori JARVIS-AGENT di PC lokal..."
         }    
 
+    # 🩺 PROTOKOL A.S.C.A.R. DART INSPECTOR (FLUTTER PRE-FLIGHT)
+    elif any(k in msg_lower for k in ["cek flutter", "inspeksi flutter", "cek dart", "ascar dart", "inspeksi dart", "scan dart"]):
+        payload = {"type": "INSPECT_DART_FRONTEND"}
+        LOCAL_COMMAND_QUEUE.append(payload)
+        
+        return {
+            "status": "EXECUTE", 
+            "reply": "🩺 **[A.S.C.A.R. DART INSPECTOR INITIATED]**\nMemeriksa & menambal seluruh berkas `.dart` di PC lokal, Sir..."
+        }
+
     # 🩺 PROTOKOL V.E.R.I.T.A.S. (KIRA SERVER & PC LOKAL)
     elif any(k in msg_lower for k in ["veritas", "audit sistem", "cek kesehatan", "system audit", "audit jarvis"]):
         # 1. Kirim Perintah ke PC Lokal (VS Code) via Antrean Polling

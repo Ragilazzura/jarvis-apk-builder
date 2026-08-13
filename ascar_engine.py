@@ -28,6 +28,69 @@ class ASCARMaintenanceEngine:
         # 3. Inisialisasi Client Gemini
         self.client = genai.Client(api_key=api_key) if api_key else None
 
+    # 🩺 A.S.C.A.R. DART PRE-FLIGHT INSPECTOR (UNTUK FRONTEND FLUTTER)
+    def inspect_and_patch_dart(self, flutter_dir: str = ".") -> tuple[bool, str]:
+        """
+        Memindai dan menambal otomatis berkas .dart di PC lokal sebelum `flutter run`.
+        """
+        # 1. Pastikan folder saat ini adalah proyek Flutter
+        if not os.path.exists(os.path.join(flutter_dir, "pubspec.yaml")):
+            return False, "🚨 **[A.S.C.A.R. ERROR]**: Folder saat ini bukan proyek Flutter (pubspec.yaml tidak ditemukan)."
+
+        print("\n🩺 [A.S.C.A.R. DART INSPECTOR] Memulai pemindaian berkas .dart...", flush=True)
+
+        try:
+            # 2. Jalankan Static Analysis `dart analyze`
+            analyze_res = subprocess.run(
+                ["dart", "analyze"],
+                cwd=flutter_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            # Jika kodingan 100% Bersih
+            if analyze_res.returncode == 0:
+                print("✅ [DART CLEAN] Tidak ada issue / error ditemukan pada berkas .dart!", flush=True)
+                return True, "✨ **[DART CLEAN]** Seluruh berkas `.dart` 100% valid & siap di-`flutter run`, Sir!"
+
+            print("⚠️ [DART ISSUES DETECTED] Mengaktifkan Auto-Fixer bawaan Dart SDK...", flush=True)
+
+            # 3. Jalankan `dart fix --apply` untuk menambal fix standar otomatis
+            subprocess.run(
+                ["dart", "fix", "--apply"],
+                cwd=flutter_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            # 4. Melakukan Uji Ulang (Re-check) setelah penambalan
+            recheck_res = subprocess.run(
+                ["dart", "analyze"],
+                cwd=flutter_dir,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if recheck_res.returncode == 0:
+                print("🛠️ [A.S.C.A.R. PATCH SUCCESS] Seluruh error Dart berhasil ditambal!", flush=True)
+                return True, "🛠️ **[A.S.C.A.R. PATCHED]** Error pada `.dart` berhasil ditambal otomatis! Silakan luncurkan `flutter run`."
+            else:
+                # Ambil ringkasan error yang tersisa jika butuh perhatian manual
+                errors_summary = recheck_res.stdout.strip()
+                print(f"🚨 [DART MANUAL ATTENTION NEEDED]:\n{errors_summary}", flush=True)
+                
+                # Truncate agar tidak memenuhi layar HUD jika error terlalu panjang
+                short_summary = errors_summary[:600] + ("..." if len(errors_summary) > 600 else "")
+                return False, f"⚠️ **[DART WARNING]** Ditemukan issue pada Dart yang membutuhkan penanganan:\n```text\n{short_summary}\n```"
+
+        except FileNotFoundError:
+            return False, "🚨 **[DART MISSING]**: Perintah `dart` tidak ditemukan di System PATH PC Bos. Pastikan Flutter SDK sudah terpasang."
+        except Exception as e:
+            return False, f"🚨 **[A.S.C.A.R. DART ERROR]**: Gagal mengeksekusi Dart Inspector -> {e}"
+
     def create_backup(self, file_path: str) -> str:
         """Membuat salinan cadangan sebelum file diedit"""
         if not os.path.exists(self.backup_dir):
