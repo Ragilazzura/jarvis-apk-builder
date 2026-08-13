@@ -1,7 +1,6 @@
 import 'package:volume_controller/volume_controller.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:torch_light/torch_light.dart';
-import 'package:app_launcher/app_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:disk_space_plus/disk_space_plus.dart';
 
@@ -48,9 +47,8 @@ class DeviceControlService {
   // 🧹 4. DIAGNOSA STORAGE / PENYIMPANAN HP
   static Future<String> checkStorageDiagnostics() async {
     try {
-      final diskSpace = DiskSpacePlus();
-      double? freeSpaceMB = await diskSpace.getFreeDiskSpace;
-      double? totalSpaceMB = await diskSpace.getTotalDiskSpace;
+      double? freeSpaceMB = await DiskSpacePlus().getFreeDiskSpace;
+      double? totalSpaceMB = await DiskSpacePlus().getTotalDiskSpace;
 
       if (freeSpaceMB == null || totalSpaceMB == null) {
         return "🚨 Gagal membaca data penyimpanan HP.";
@@ -71,21 +69,32 @@ class DeviceControlService {
     }
   }
 
-  // 🚀 5. LAUNCH APLIKASI LAIN (SPOTIFY, YOUTUBE, WHATSAPP, DLL)
+  // 🚀 5. LAUNCH APLIKASI UTAMA (VIA NATIVE SCHEME & URL LAUNCHER)
   static Future<String> launchExternalApp({
-    required String packageName,
-    String? appName,
+    required String appScheme,
+    required String fallbackUrl,
+    required String appName,
   }) async {
     try {
-      await AppLauncher.hasApp(androidPackageName: packageName);
-      await AppLauncher.openApp(androidPackageName: packageName);
-      return "🚀 Membuka aplikasi ${appName ?? packageName}, Sir!";
+      Uri nativeUri = Uri.parse(appScheme);
+      Uri webUri = Uri.parse(fallbackUrl);
+
+      // Coba buka aplikasi bawaan HP lebih dulu
+      if (await canLaunchUrl(nativeUri)) {
+        await launchUrl(nativeUri, mode: LaunchMode.externalApplication);
+        return "🚀 Membuka aplikasi $appName, Sir!";
+      } else if (await canLaunchUrl(webUri)) {
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+        return "🚀 Membuka $appName, Sir!";
+      } else {
+        return "⚠️ Tidak dapat meluncurkan $appName di perangkat ini.";
+      }
     } catch (e) {
-      return "🚨 Gagal membuka ${appName ?? packageName}: Aplikasi tidak ditemukan atau terjadi masalah.";
+      return "🚨 Error saat membuka $appName: $e";
     }
   }
 
-  // 🎵 6. DEEP LINKING (PUTAR SPOTIFY / YOUTUBE DENGAN QUERY)
+  // 🎵 6. DEEP LINKING (SEARCH & AUTO PLAY)
   static Future<String> openMediaWithQuery(String platform, String query) async {
     try {
       Uri uri;
@@ -101,7 +110,7 @@ class DeviceControlService {
 
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-        return "🎶 Mencari dan memutar '$query' di $platform, Sir!";
+        return "🎶 Mencari '$query' di $platform, Sir!";
       } else {
         return "🚨 Tidak dapat mengarahkan perintah ke $platform.";
       }

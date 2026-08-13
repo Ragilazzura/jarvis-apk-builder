@@ -428,7 +428,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       _addMessage("user", userMsg);
       _controller.clear();
       String res = await DeviceControlService.launchExternalApp(
-        packageName: "com.spotify.music",
+        appScheme: "spotify://",
+        fallbackUrl: "https://open.spotify.com",
         appName: "Spotify",
       );
       _addMessage("jarvis", res);
@@ -437,7 +438,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       _addMessage("user", userMsg);
       _controller.clear();
       String res = await DeviceControlService.launchExternalApp(
-        packageName: "com.google.android.youtube",
+        appScheme: "vnd.youtube://",
+        fallbackUrl: "https://www.youtube.com",
         appName: "YouTube",
       );
       _addMessage("jarvis", res);
@@ -446,7 +448,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       _addMessage("user", userMsg);
       _controller.clear();
       String res = await DeviceControlService.launchExternalApp(
-        packageName: "com.whatsapp",
+        appScheme: "whatsapp://",
+        fallbackUrl: "https://web.whatsapp.com",
         appName: "WhatsApp",
       );
       _addMessage("jarvis", res);
