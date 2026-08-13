@@ -1,7 +1,7 @@
 import 'package:volume_controller/volume_controller.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:torch_light/torch_light.dart';
-import 'package:external_app_launcher/external_app_launcher.dart';
+import 'package:app_launcher/app_launcher.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:disk_space_plus/disk_space_plus.dart';
 
@@ -77,20 +77,11 @@ class DeviceControlService {
     String? appName,
   }) async {
     try {
-      var isInstalled = await LaunchApp.isAppInstalled(
-        androidPackageName: packageName,
-      );
-
-      if (isInstalled == true) {
-        await LaunchApp.openApp(
-          androidPackageName: packageName,
-        );
-        return "🚀 Membuka aplikasi ${appName ?? packageName}, Sir!";
-      } else {
-        return "⚠️ Aplikasi ${appName ?? packageName} tidak ditemukan di HP Bos.";
-      }
+      await AppLauncher.hasApp(androidPackageName: packageName);
+      await AppLauncher.openApp(androidPackageName: packageName);
+      return "🚀 Membuka aplikasi ${appName ?? packageName}, Sir!";
     } catch (e) {
-      return "🚨 Gagal membuka aplikasi: $e";
+      return "🚨 Gagal membuka ${appName ?? packageName}: Aplikasi tidak ditemukan atau terjadi masalah.";
     }
   }
 
