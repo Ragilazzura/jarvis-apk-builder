@@ -33,14 +33,10 @@ from google import genai
 import chromadb
 from pypdf import PdfReader
 from stark_sandbox import StarkSandboxManager
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, MessageHandler, CommandHandler, 
-    CallbackQueryHandler, filters, ContextTypes
-)
 from apscheduler.schedulers.background import BackgroundScheduler
 from duckduckgo_search import DDGS
 from playwright.async_api import async_playwright
+
 # --- FASTAPI & MIDDLEWARE IMPORTS ---
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,14 +52,11 @@ import uvicorn
 # ==========================================
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
 MODEL_NAME = "gemini-3.6-flash"
 sandbox_manager = StarkSandboxManager()
 IS_LOCKDOWN = False
-
 
 def load_agentic_squad_orchestrator():
     """Load AgenticSquadOrchestrator without crashing when the module is unavailable."""
@@ -112,12 +105,6 @@ CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 vector_collection = chroma_client.get_or_create_collection(name="jarvis_knowledge")
-
-def legion_sub_agent_task(agent_type: str, prompt: str):
-    print(f"🤖 [LEGION] Sub-agent {agent_type} sedang memproses: {prompt}")
-
-async def research_command_handler(update, context):
-    await update.message.reply_text("🔎 Fitur Deep Research (FRIDAY) sedang dioptimalkan, Bos.")
 
 def init_memory_db():
     os.makedirs(BASE_DIR, exist_ok=True)
@@ -197,22 +184,15 @@ def get_all_memories() -> str:
         return f"Error DB: {e}"
 
 def handle_sandbox_command(user_input: str) -> str:
-    """Jembatan antara perintah chat dan StarkSandboxManager"""
     global sandbox_manager
-    
-    # Contoh perintah: "Jarvis, buat file 'coba.py' isi 'print(1+1)' di sandbox"
     if "buat file" in user_input.lower() and "sandbox" in user_input.lower():
-        # Logika parsing sederhana (bisa kita pertajam nanti dengan AI)
-        # Untuk sekarang, kita panggil manager
-        filename = "temp_fitur.py" # Contoh, nanti bisa dibuat dinamis
+        filename = "temp_fitur.py"
         content = "print('Halo dari Sandbox!')" 
         path = sandbox_manager.create_canvas_file(filename, content)
         return f"📦 File dibuat di sandbox: {path}"
-        
     elif "tes sandbox" in user_input.lower():
         success, msg = sandbox_manager.test_sandbox_file("temp_fitur.py")
         return f"🧪 Status Uji: {msg}"
-        
     return "Perintah sandbox tidak dikenali, Bos."
 
 # ==========================================
@@ -223,7 +203,6 @@ def generate_daily_journal_job():
 
     print("🧠 [T.A.C.H.I.] Mengompilasi Jurnal Harian Aktivitas Proyek Bos...")
     today_str = datetime.datetime.now().strftime("%A, %d %B %Y")
-    
     recent_memories = get_all_memories()
     
     prompt = f"""
@@ -241,36 +220,16 @@ Tuliskan Jurnal Harian untuk tanggal {today_str} yang berisi:
 Tulis dengan gaya bahasa Jarvis yang berkelas, padat, dan panggil "Bos".
 """
     journal_result = ask_jarvis(prompt)
-    
     save_memory("DAILY_JOURNAL", f"[{today_str}] {journal_result[:500]}")
     add_to_vector_db(journal_result, f"journal_{int(time.time())}", {"type": "daily_journal", "date": today_str})
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": f"📖 *STARK INDUSTRIES DAILY JOURNAL ({today_str})*\n\n{journal_result}"
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Gagal kirim Jurnal Harian: {e}")
-
-# ==========================================
-# STARK INTRUSION & SECURITY PROTOCOL
-# ==========================================
-def send_security_alert(intruder_id: str, message_text: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": ALLOWED_CHAT_ID,
-        "text": f"🚨 *STARK SECURITY ALERT: INTRUSION DETECTED!*\n\n"
-                f"👤 *Intruder ID:* `{intruder_id}`\n"
-                f"💬 *Pesan Penyusup:* {message_text}\n"
-                f"🛡️ *Action:* Access Denied & Logged."
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Security Alert Error: {e}")
+    # Broadcast jurnal harian langsung ke HUD HP aktif
+    journal_alert = f"📖 *STARK INDUSTRIES DAILY JOURNAL ({today_str})*\n\n{journal_result}"
+    for ws in ACTIVE_HUD_CONNECTIONS:
+        try:
+            asyncio.run_coroutine_threadsafe(ws.send_json({"type": "text_chunk", "content": journal_alert}), asyncio.get_event_loop())
+        except:
+            pass
 
 # ==========================================
 # WEB SCRAPER HELPER
@@ -296,7 +255,7 @@ def scrape_web_page(url: str) -> str:
 def ask_jarvis(user_msg: str) -> str:
     global IS_LOCKDOWN
     if IS_LOCKDOWN:
-        return "🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Semua fungsi Jarvis sedang terkunci demi keamanan. Gunakan perintah `/unlock` untuk membuka kembali."
+        return "🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Semua fungsi Jarvis sedang terkunci demi keamanan. Kirim perintah unlock untuk membuka kembali."
 
     wib = pytz.timezone('Asia/Jakarta')
     now = datetime.datetime.now(wib)
@@ -386,11 +345,7 @@ def ask_jarvis_with_image(image_bytes: bytes, user_prompt: str = "") -> str:
     except Exception as e:
         return f"🚨 Error membaca gambar: {e}"
 
-# 🔊 FUNGSI gTTS UNTUK AUDIO RESPONS HUD
-import re
-
 def detect_language(text: str) -> str:
-    """Deteksi sederhana apakah teks cenderung Bahasa Inggris atau Indonesia"""
     english_keywords = {"the", "is", "and", "to", "a", "of", "in", "for", "on", "that", "you", "it", "with", "as", "all", "have", "more"}
     indonesian_keywords = {"dan", "yang", "di", "ke", "dari", "ini", "itu", "untuk", "dengan", "adalah", "tidak", "pada", "dalam", "saya", "kamu", "bos"}
     
@@ -402,22 +357,11 @@ def detect_language(text: str) -> str:
 
 def generate_gtts_base64_sync(text: str) -> str:
     lang_code = detect_language(text)
-    
     tts = gTTS(text=text, lang=lang_code)
     mp3_fp = io.BytesIO()
     tts.write_to_fp(mp3_fp)
     mp3_fp.seek(0)
-    
     return base64.b64encode(mp3_fp.read()).decode('utf-8')
-
-async def generate_voice_response(text: str, output_path: str = "voice_reply.ogg") -> str:
-    try:
-        clean_speech = re.sub(r'[^\w\s,?!.]', '', text)
-        tts = gTTS(text=clean_speech, lang='id', slow=False)
-        tts.save(output_path)
-        return output_path
-    except Exception as e:
-        return ""
 
 def test_code_execution(file_path):
     try:
@@ -518,67 +462,25 @@ def execute_git_workflow(action: str, commit_msg: str = "") -> str:
         if action == "status":
             res = subprocess.run(["git", "status"], capture_output=True, text=True, check=True)
             return f"📋 *HEPHAESTUS GIT STATUS:*\n```\n{res.stdout}\n```"
-            
         elif action == "pull":
             res = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
             return f"📥 *HEPHAESTUS GIT PULL:*\n```\n{res.stdout}\n```"
-            
         elif action == "push":
             if not commit_msg:
                 commit_msg = f"Auto-deploy by Jarvis HEPHAESTUS - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
             subprocess.run(["git", "add", "."], capture_output=True, text=True, check=True)
             commit_res = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True)
             push_res = subprocess.run(["git", "push"], capture_output=True, text=True, check=True)
-            
             return f"🚀 *HEPHAESTUS GIT PUSH SUCCESSFUL!*\n\n*Commit Message:* `{commit_msg}`\n\n*Log Output:*\n```\n{commit_res.stdout}\n{push_res.stdout}\n```"
-            
         else:
             return "Action tidak dikenali, Bos. Gunakan `status`, `pull`, atau `push`."
-            
     except subprocess.CalledProcessError as e:
         return f"🚨 *HEPHAESTUS GIT ERROR:*\n```\n{e.stderr or e.stdout}\n```"
     except Exception as e:
         return f"🚨 *EXECUTION ERROR:* {e}"
 
-# ==========================================
-# PROJECT E.D.I.T.H.: TERMINAL COMMANDER ENGINE
-# ==========================================
-def execute_terminal_command(command_str: str) -> str:
-    blacklisted_keywords = ["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:"]
-    for kw in blacklisted_keywords:
-        if kw in command_str.lower():
-            return "🚨 *STARK SECURITY PROTOCOL:* Perintah ini diblokir demi keamanan sistem!"
-
-    try:
-        print(f"⚡ [E.D.I.T.H.] Executing Shell Command: '{command_str}'...")
-        process = subprocess.run(
-            command_str,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        stdout_text = process.stdout.strip()
-        stderr_text = process.stderr.strip()
-
-        output = ""
-        if stdout_text:
-            output += f"📤 *STDOUT:*\n`{stdout_text[:3000]}`"
-        if stderr_text:
-            output += f"\n⚠️ *STDERR:*\n`{stderr_text[:1000]}`"
-
-        return output if output else "✅ Perintah berhasil dieksekusi tanpa output."
-    except subprocess.TimeoutExpired:
-        return "⏳ *Execution Timeout:* Perintah memakan waktu lebih dari 30 detik."
-    except Exception as e:
-        return f"🚨 *Execution Error:* {e}"
-
 def veronica_auto_fix_bug(error_traceback: str):
     print("🛡️ [VERONICA] Fatal Error terdeteksi! Mengaktifkan A.S.C.A.R. Auto-Hotpatch...")
-    
-    # 1. Minta AI Menganalisis & Menentukan File Yang Bermasalah
     prompt = (
         f"[VERONICA PROTOCOL: RUNTIME CRASH ANALYSIS]\n"
         f"Terjadi crash pada sistem. Berikut stack trace error-nya:\n\n"
@@ -587,26 +489,19 @@ def veronica_auto_fix_bug(error_traceback: str):
         f"1. Sebutkan NAMA FILE Python yang menjadi sumber error utama (contoh: jarvis_master.py) di baris paling pertama (HANYA nama file murni tanpa markdown atau tanda petik).\n"
         f"2. Di baris berikutnya, berikan penjelasan singkat dan ringkas mengapa error terjadi."
     )
-    
     try:
         analysis = ask_jarvis(prompt)
         lines = [line.strip() for line in analysis.strip().split('\n') if line.strip()]
-        
         target_file = ""
         if lines:
             target_file = lines[0].replace('`', '').replace("'", "").replace('"', '').strip()
 
         healed = False
         heal_msg = ""
-
-        # 2. Panggil A.S.C.A.R. jika file lokal ditemukan
         if target_file and os.path.exists(target_file) and target_file.endswith('.py'):
             from ascar_engine import ASCARMaintenanceEngine
             engine = ASCARMaintenanceEngine()
-            
-            print(f"🔧 [VERONICA ➔ A.S.C.A.R.] Memperbaiki berkas: {target_file}")
             healed, heal_msg = engine.auto_repair_file(target_file, error_traceback)
-            
             status_symbol = "✅ HOTPATCH SUCCESS" if healed else "🚨 HOTPATCH FAILED (ROLLBACKED)"
             alert_text = (
                 f"🛡️ **[VERONICA ➔ A.S.C.A.R. AUTONOMOUS HOTPATCH]**\n"
@@ -618,7 +513,6 @@ def veronica_auto_fix_bug(error_traceback: str):
         else:
             alert_text = f"🛡️ **[VERONICA BUG HUNTER ALERT: SYSTEM CRASH DETECTED]**\n\n{analysis}"
 
-        # 3. 🔥 TEMBAKKAN KHUSUS KE JARVIS HUD HP (Via Proactive Alert Endpoint)
         try:
             local_port = os.getenv("PORT", 8080)
             requests.post(
@@ -627,10 +521,8 @@ def veronica_auto_fix_bug(error_traceback: str):
                 json={"alert_message": alert_text},
                 timeout=5
             )
-            print("✅ [VERONICA] Laporan deteksi & hotpatch berhasil dikirim ke Jarvis HUD!")
         except Exception as e:
             print(f"[!] Gagal mem-forward Veronica ke HUD: {e}")
-
     except Exception as e:
         print(f"🚨 [VERONICA HOTPATCH ERROR]: {e}")
 
@@ -641,46 +533,6 @@ def veronica_global_exception_handler(exctype, value, tb):
 
 sys.excepthook = veronica_global_exception_handler
 
-async def execute_browser_automation(url: str, action: str = "screenshot", form_data: dict = None) -> tuple[bool, str, str]:
-    print(f"🌐 [FRIDAY BROWSER] Starting headless session for: {url} (Action: {action})...")
-    
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
-            await page.goto(url, timeout=30000, wait_until="networkidle")
-            
-            if action == "screenshot":
-                screenshot_path = f"web_snap_{int(time.time())}.png"
-                await page.screenshot(path=screenshot_path, full_page=True)
-                await browser.close()
-                return True, "✅ Screenshot halaman web berhasil diambil, Bos!", screenshot_path
-                
-            elif action == "extract_text":
-                content = await page.inner_text("body")
-                await browser.close()
-                clean_content = "\n".join([line.strip() for line in content.splitlines() if line.strip()])[:3000]
-                return True, f"📄 *HASIL EKSTRAKSI TEKS WEB:*\n\n{clean_content}", ""
-
-            elif action == "fill_form" and form_data:
-                for selector, value in form_data.items():
-                    await page.fill(selector, value)
-                
-                screenshot_path = f"form_filled_{int(time.time())}.png"
-                await page.screenshot(path=screenshot_path)
-                await browser.close()
-                return True, "✅ Form berhasil diisi otomatis, Bos!", screenshot_path
-
-            await browser.close()
-            return False, "Action tidak dikenal.", ""
-
-    except Exception as e:
-        print(f"🚨 [FRIDAY BROWSER ERROR]: {e}")
-        return False, f"🚨 Error otomatisasi web: {e}", ""
-
 # ==========================================
 # PROJECT ULTRON-SENTINEL: UPTIME & HEALTH MONITOR
 # ==========================================
@@ -690,21 +542,17 @@ MONITORED_TARGETS = [
 
 def ultron_sentinel_ping_job():
     if IS_LOCKDOWN: return
-
     print("🛰️ [ULTRON-SENTINEL] Running 24/7 Uptime & Endpoint Health Check...")
     failed_services = []
     
     for target in MONITORED_TARGETS:
         name = target["name"]
         url = target["url"]
-        
         if "xxxx" in url: continue
-
         try:
             start_time = time.time()
             response = requests.get(url, timeout=10)
             latency = round((time.time() - start_time) * 1000, 2)
-
             if response.status_code >= 400:
                 failed_services.append(f"• *{name}*: HTTP Status {response.status_code} ({url})")
             else:
@@ -715,17 +563,11 @@ def ultron_sentinel_ping_job():
     if failed_services:
         alert_body = "\n".join(failed_services)
         alarm_msg = f"🚨 *ULTRON-SENTINEL ALARM: SERVICE DOWN DETECTED!*\n\n{alert_body}\n\n*Action Required:* Mohon periksa server/koneksi Bos!"
-        
-        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": alarm_msg,
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url_api, json=payload)
-        except Exception as e:
-            print(f"[!] Gagal kirim Sentinel Alarm: {e}")
+        for ws in ACTIVE_HUD_CONNECTIONS:
+            try:
+                asyncio.run_coroutine_threadsafe(ws.send_json({"type": "text_chunk", "content": alarm_msg}), asyncio.get_event_loop())
+            except:
+                pass
 
 # ==========================================
 # NATURAL LANGUAGE ROUTER TERPADU (ALL-IN-ONE)
@@ -734,13 +576,11 @@ def route_natural_language_command(user_message: str) -> dict:
     global LOCAL_COMMAND_QUEUE
     msg_lower = user_message.lower()
 
-    # 1. 👁️ E.D.I.T.H. SCREEN VISION (Membaca Layar PC)
     if any(k in msg_lower for k in ["baca layar", "lihat layar", "periksa layar", "layar pc", "screenshot pc", "layar laptop"]):
         payload = {"type": "SCREEN_VISION", "prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Mengambil screenshot layar PC secara langsung..."}
 
-    # 2. 📻 MEDIA & VOLUME CONTROL
     elif any(k in msg_lower for k in ["besarkan volume", "tambah volume", "volume naik"]):
         LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "vol_up"})
         return {"status": "EXECUTE", "reply": "Volume PC dinaikkan, Bos."}
@@ -758,10 +598,9 @@ def route_natural_language_command(user_message: str) -> dict:
         return {"status": "EXECUTE", "reply": "Status pemutar media PC diperbarui."}
 
     elif "sandbox" in msg_lower:
-            reply = handle_sandbox_command(user_message)
-            return {"status": "EXECUTE", "reply": reply}
+        reply = handle_sandbox_command(user_message)
+        return {"status": "EXECUTE", "reply": reply}
 
-    # 3. ⏰ SHUTDOWN & POWER CONTROL
     elif "matikan pc" in msg_lower or "shutdown pc" in msg_lower:
         numbers = re.findall(r'\d+', msg_lower)
         minutes = int(numbers[0]) if numbers else 1
@@ -772,44 +611,36 @@ def route_natural_language_command(user_message: str) -> dict:
         LOCAL_COMMAND_QUEUE.append({"type": "SHUTDOWN_CANCEL"})
         return {"status": "EXECUTE", "reply": "Penjadwalan shutdown PC berhasil dibatalkan, Bos!"}
 
-    # 4. 📂 LOCAL CODE / DOCUMENT INDEXING TRIGGER
     elif any(k in msg_lower for k in ["indeks folder", "pindai kodingan", "indeks dokumen"]):
         LOCAL_COMMAND_QUEUE.append({"type": "START_FILE_INDEXING"})
         return {"status": "EXECUTE", "reply": "Memulai pemindaian folder kerja dan pengindeksan dokumen lokal ke ChromaDB..."}
 
-    # 📧 5. PEMICU KIRIM EMAIL (Diperbaiki jadi elif)
     elif "kirim email" in msg_lower or "tulis email" in msg_lower:
         payload = {"type": "SEND_EMAIL", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Memproses pembuatan dan pengiriman email..."}
 
-    # 💬 6. PEMICU WHATSAPP
     elif "kirim wa" in msg_lower or "whatsapp ke" in msg_lower:
         payload = {"type": "SEND_WHATSAPP", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Instruksi pengiriman WhatsApp diterima, memproses pesan..."}
 
-    # 📝 7. PEMICU EDIT/BUAT DOKUMEN WORD
     elif "tulis word" in msg_lower or "buat dokumen" in msg_lower or "edit word" in msg_lower:
         payload = {"type": "WORD_ACTION", "raw_prompt": user_message}
         LOCAL_COMMAND_QUEUE.append(payload)
         return {"status": "EXECUTE", "reply": "Memproses perintah dokumen Word di PC lokal..."}
 
-    # 📊 8. PEMICU CEK APLIKASI AKTIF
     elif "cek aplikasi" in msg_lower or "aplikasi terbuka" in msg_lower or "proses pc" in msg_lower:
         LOCAL_COMMAND_QUEUE.append({"type": "CHECK_RUNNING_APPS"})
         return {"status": "EXECUTE", "reply": "Memindai seluruh aplikasi dan jendela yang sedang terbuka di PC..."}
 
-    # 🎨 9. PEMICU DIAGRAM GENERATOR
     elif "buat diagram" in msg_lower or "gambar diagram" in msg_lower:
         return {"status": "EXECUTE_DIAGRAM", "reply": "Memproses pembuatan diagram secara visual..."}
 
-    # 💻 10. PEMICU CEK HARDWARE & PROSES (Tanpa blocking interval)
     elif any(k in msg_lower for k in ["cek hardware", "hardware metrics", "penggunaan pc", "status server"]):
         cpu = psutil.cpu_percent()
         ram = psutil.virtual_memory().percent
         disk = psutil.disk_usage('/').percent
-
         metrics_msg = (
             f"💻 STARK SYSTEM METRICS:\n"
             f"• CPU Usage: {cpu}%\n"
@@ -819,7 +650,6 @@ def route_natural_language_command(user_message: str) -> dict:
         )
         return {"status": "EXECUTE", "reply": metrics_msg}
 
-    # 🛠️ 11. PEMICU HEPHAESTUS (GIT / DEVOPS DARI HP)
     elif "git status" in msg_lower or "cek status git" in msg_lower:
         res = execute_git_workflow("status")
         return {"status": "EXECUTE", "reply": res}
@@ -832,33 +662,25 @@ def route_natural_language_command(user_message: str) -> dict:
         res = execute_git_workflow("push", "Auto-deploy via Voice/HUD Command")
         return {"status": "EXECUTE", "reply": res}
 
-    # 🧠 12. PEMICU M.I.N.D PALACE (RECALL MEMORY DARI HP)
     elif "ingat kembali" in msg_lower or "recall memori" in msg_lower or "coba ingat" in msg_lower:
         topic = msg_lower.replace("ingat kembali", "").replace("recall memori", "").replace("coba ingat", "").strip()
         memories = search_vector_db(topic, n_results=3)
-        
         if not memories:
             return {"status": "EXECUTE", "reply": f"Maaf Bos, tidak ada ingatan tentang '{topic}' di M.I.N.D Palace."}
-            
         summary = ask_jarvis(f"Rangkum ingatan ini secara singkat dan padat untuk Bos tentang '{topic}': {memories}")
         return {"status": "EXECUTE", "reply": f"📖 [MEMORY RECALL]\n{summary}"}
 
-    # 💻 13. PEMICU CODE AGENT DARI HP
     elif msg_lower.startswith("buatkan script") or msg_lower.startswith("tulis kode"):
         is_success, log_msg, file_path = generate_and_test_code(user_message)
         return {"status": "EXECUTE", "reply": f"📝 Code Agent Report: {log_msg}"}
 
-    # 🧪 PEMICU SIMULASI BUG / CRASH UNTUK V.E.R.O.N.I.C.A.
     elif any(k in msg_lower for k in ["test bug", "simulasi bug", "pemicu crash", "testbug"]):
         def trigger_simulated_crash():
             try:
-                # Sengaja memicu ZeroDivisionError di latar belakang
                 _ = 100 / 0
             except Exception:
-                import traceback
                 error_msg = traceback.format_exc()
                 veronica_auto_fix_bug(error_msg)
-
         threading.Thread(target=trigger_simulated_crash, daemon=True).start()
         return {
             "status": "EXECUTE", 
@@ -881,11 +703,9 @@ def route_natural_language_command(user_message: str) -> dict:
                     timeout=10
                 )
                 return
-
             orch = orchestrator_cls(api_key=GEMINI_API_KEY)
             report = orch.orchestrate(task_goal)
             
-            # Kirim laporan hasil akhir ke HUD HP / Telegram
             local_port = os.getenv("PORT", 8080)
             requests.post(
                 f"http://127.0.0.1:{local_port}/client/proactive_alert",
@@ -897,7 +717,6 @@ def route_natural_language_command(user_message: str) -> dict:
         threading.Thread(target=run_async_orchestration, daemon=True).start()
         return {"status": "EXECUTE", "reply": f"🤖 [AGENTIC SQUAD] Tim agen diaktifkan untuk misi: '{task_goal}'. Memulai proses di latar belakang..."}
 
-    # 🛡️ PROTOKOL A.S.C.A.R. (SELF-MAINTENANCE ENGINE)
     elif any(k in msg_lower for k in ["ascar", "audit sistem", "periksa kode", "cek repositori", "ascar run"]):
         payload = {"type": "RUN_ASCAR_DIAGNOSTIC"}
         LOCAL_COMMAND_QUEUE.append(payload)
@@ -906,28 +725,21 @@ def route_natural_language_command(user_message: str) -> dict:
             "reply": "🛡️ [A.S.C.A.R. INITIATED]: Memulai pemindaian mendalam seluruh repositori JARVIS-AGENT di PC lokal..."
         }    
 
-    # 🩺 PROTOKOL A.S.C.A.R. DART INSPECTOR (FLUTTER PRE-FLIGHT)
     elif any(k in msg_lower for k in ["cek flutter", "inspeksi flutter", "cek dart", "ascar dart", "inspeksi dart", "scan dart"]):
         payload = {"type": "INSPECT_DART_FRONTEND"}
         LOCAL_COMMAND_QUEUE.append(payload)
-        
         return {
             "status": "EXECUTE", 
             "reply": "🩺 **[A.S.C.A.R. DART INSPECTOR INITIATED]**\nMemeriksa & menambal seluruh berkas `.dart` di PC lokal, Sir..."
         }
 
-    # 🩺 PROTOKOL V.E.R.I.T.A.S. (KIRA SERVER & PC LOKAL)
     elif any(k in msg_lower for k in ["veritas", "audit sistem", "cek kesehatan", "system audit", "audit jarvis"]):
-        # 1. Kirim Perintah ke PC Lokal (VS Code) via Antrean Polling
         payload = {"type": "RUN_VERITAS_DIAGNOSTIC"}
-        LOCAL_COMMAND_QUEUE.append(payload) # 👈 Supaya jarvis_client.py di PC ikut cetak di VS Code!
-
-        # 2. Jalankan juga Audit Server Railway di Background
+        LOCAL_COMMAND_QUEUE.append(payload)
         def run_async_veritas():
             from stark_diagnostic import StarkDiagnosticSuite
             suite = StarkDiagnosticSuite()
             report_text = suite.run_full_audit()
-
             local_port = os.getenv("PORT", 8080)
             requests.post(
                 f"http://127.0.0.1:{local_port}/client/proactive_alert",
@@ -935,7 +747,6 @@ def route_natural_language_command(user_message: str) -> dict:
                 json={"alert_message": report_text},
                 timeout=60
             )
-
         threading.Thread(target=run_async_veritas, daemon=True).start()
         return {
             "status": "EXECUTE", 
@@ -950,10 +761,12 @@ def route_natural_language_command(user_message: str) -> dict:
 def daily_briefing_job():
     if IS_LOCKDOWN: return
     briefing_text = ask_jarvis("Berikan briefing pagi singkat dan motivasi untuk Bos memulai hari.")
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": ALLOWED_CHAT_ID, "text": f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"}
-    try: requests.post(url, json=payload)
-    except: pass
+    briefing_msg = f"🌅 GOOD MORNING BRIEFING\n\n{briefing_text}"
+    for ws in ACTIVE_HUD_CONNECTIONS:
+        try:
+            asyncio.run_coroutine_threadsafe(ws.send_json({"type": "text_chunk", "content": briefing_msg}), asyncio.get_event_loop())
+        except:
+            pass
 
 scheduler = BackgroundScheduler(timezone="Asia/Jakarta")
 scheduler.add_job(daily_briefing_job, 'cron', hour=7, minute=0)
@@ -990,19 +803,15 @@ class ProactiveAlertRequest(BaseModel):
 @web_app.get("/")
 def read_root():
     return {
-        "status": "Jarvis Web, IoT Bridge & KINETIC-UI Online",
+        "status": "Jarvis Web, IoT Bridge & KINETIC-UI Online (Telegram-Free Edition)",
         "lockdown": IS_LOCKDOWN,
         "time": str(datetime.datetime.now())
     }
 
-# ==========================================
-# PROYEK TASK FORCE: MULTI-STEP AGENT PLANNER
-# ==========================================
 class AutonomousTaskRequest(BaseModel):
     task_description: str
 
 def plan_autonomous_task_chain(task_description: str) -> list:
-    """Mengubah instruksi bahasa alami kompleks menjadi rantai aksi berurutan"""
     planner_prompt = f"""
 Kamu adalah Chief Task Planner dari J.A.R.V.I.S.
 Pecah instruksi kompleks berikut menjadi rantai langkah eksekusi terminal/shell yang logis dan aman untuk OS Windows.
@@ -1031,14 +840,11 @@ Kembalikan HANYA format JSON valid bertipe list of objects seperti contoh beriku
 def trigger_task_force(req: AutonomousTaskRequest):
     global LOCAL_COMMAND_QUEUE
     chain = plan_autonomous_task_chain(req.task_description)
-    
-    # Masukkan seluruh rantai pekerjaan ke antrean client PC
     LOCAL_COMMAND_QUEUE.append({
         "type": "TASK_FORCE_CHAIN",
         "chain": chain,
         "task_name": req.task_description
     })
-    
     return {
         "status": "planned",
         "message": f"Task Force diaktifkan. {len(chain)} langkah eksekusi dikirim ke PC lokal, Bos!",
@@ -1053,33 +859,21 @@ async def chat_endpoint(request: ChatRequest):
     reply_text = ""
     diag_b64 = None
 
-    # 1. JIKA ADA LAMPIRAN GAMBAR DARI HUD (MULTIMODAL VISION)
     if request.image_base64:
         try:
             img_bytes = base64.b64decode(request.image_base64)
-            
-            # Jika user mengirim gambar tanpa teks, berikan prompt default
             prompt_msg = request.message.strip() if request.message else "Tolong analisis gambar ini, Bos."
-            
             reply_text = ask_jarvis_with_image(img_bytes, prompt_msg)
-            
             if not reply_text:
                 reply_text = "⚠️ Gemini Vision tidak memberikan tanggapan untuk gambar ini."
-                
         except Exception as e:
-            # Mengenangkap error dekode/vision agar HUD mendapatkan laporan instan (Anti-Silent Failure)
             reply_text = f"🚨 [A.S.C.A.R. VISION ERROR]: Gagal memproses lampiran gambar -> {str(e)}"
-
     else:
-        # 2. CEK INTENT BAHASA ALAMI (COMMAND ROUTER)
         try:
             intent = route_natural_language_command(request.message)
-            
             if intent.get("status") == "EXECUTE":
                 reply_text = intent.get("reply")
-                
             elif intent.get("status") == "EXECUTE_DIAGRAM":
-                # Format perintah: "buat diagram NodeA -> NodeB -> NodeC"
                 steps = [s.strip() for s in request.message.split("->")]
                 if len(steps) > 1:
                     edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)]
@@ -1091,15 +885,11 @@ async def chat_endpoint(request: ChatRequest):
                         reply_text = "Diagram berhasil di-render, Bos."
                 if not reply_text:
                     reply_text = "Gagal render diagram. Gunakan format panah (->)"
-
             else:
-                # 3. CHAT BIASA VIA GEMINI TEXT MODEL
                 reply_text = ask_jarvis(request.message)
-                
         except Exception as e:
             reply_text = f"🚨 [A.S.C.A.R. CORE ERROR]: Gangguan pada alur instruksi -> {str(e)}"
 
-    # Generate audio HANYA jika is_voice_input bernilai True
     audio_b64 = ""
     if request.is_voice_input and reply_text:
         try:
@@ -1108,13 +898,11 @@ async def chat_endpoint(request: ChatRequest):
             print(f"[TTS WARNING] Gagal membangkitkan audio: {e}")
             audio_b64 = ""
 
-    # Susun respons akhir ke HUD HP
     response_data = {
         "status": "success", 
         "reply": reply_text, 
         "audio_base64": audio_b64
     }
-    
     if diag_b64:
         response_data["image_base64"] = diag_b64
 
@@ -1142,7 +930,6 @@ def history_endpoint():
 async def iot_control_endpoint(request: IoTCommandRequest):
     if IS_LOCKDOWN:
         return {"status": "error", "message": "System is in Lockdown"}
-    
     print(f"📡 [STARK IOT BRIDGE] Device: {request.device_id} | Action: {request.action}")
     return {
         "status": "success",
@@ -1155,21 +942,17 @@ async def iot_control_endpoint(request: IoTCommandRequest):
 async def websocket_voice_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("🎙️ [LIVE VOICE] Klien terhubung via WebSocket Audio Stream.")
-    
     try:
         while True:
             data = await websocket.receive_bytes()
             if not data: continue
-                
             response_text = ask_jarvis("Halo Bos, saya mendengarkan stream suara Anda.")
-            audio_b64 = generate_gtts_base64_sync(response_text, lang='id')
-            
+            audio_b64 = generate_gtts_base64_sync(response_text)
             await websocket.send_json({
                 "status": "success",
                 "reply": response_text,
                 "audio_base64": audio_b64
             })
-            
     except WebSocketDisconnect:
         print("🎙️ [LIVE VOICE] Klien terputus dari WebSocket.")
     except Exception as e:
@@ -1177,9 +960,6 @@ async def websocket_voice_endpoint(websocket: WebSocket):
         try: await websocket.close()
         except: pass
 
-# ==========================================
-# ENDPOINT TAMBAHAN UNTUK INDEXER & ALERTS
-# ==========================================
 class DocumentIndexRequest(BaseModel):
     file_name: str
     content: str
@@ -1188,10 +968,8 @@ class DocumentIndexRequest(BaseModel):
 def receive_document_index(req: DocumentIndexRequest, authorization: str = Header(None)):
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Access Denied")
-    
     doc_id = f"local_doc_{req.file_name}_{int(time.time())}"
     success = add_to_vector_db(req.content[:4000], doc_id, {"source": req.file_name, "type": "local_code"})
-    
     if success:
         return {"status": "indexed", "file": req.file_name}
     return {"status": "failed"}
@@ -1201,8 +979,6 @@ def client_poll_command(authorization: str = Header(None)):
     global LOCAL_COMMAND_QUEUE
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Access Denied: Invalid Stark Key")
-    
-    # Ambil perintah teratas jika ada
     if LOCAL_COMMAND_QUEUE:
         cmd = LOCAL_COMMAND_QUEUE.pop(0)
         return {"command": cmd}
@@ -1217,14 +993,10 @@ def client_report_result(request: ClientReportRequest, authorization: str = Head
     global LOCAL_COMMAND_RESULT
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Access Denied: Invalid Stark Key")
-    
     LOCAL_COMMAND_RESULT = request.output
     print(f"💻 [STARK HYBRID] Laporan dari PC Lokal diterima: {request.output[:100]}...")
     return {"status": "received"}
 
-# ==============================================================================
-# 📱 MOBILE TELEMETRY & MORNING BRIEFING ENDPOINT (FASTAPI VERSION)
-# ==============================================================================
 class TelemetryRequest(BaseModel):
     location: Optional[str] = "Tidak diketahui"
     temperature: Optional[str] = "--"
@@ -1235,15 +1007,9 @@ class TelemetryRequest(BaseModel):
 
 @web_app.post("/client/telemetry_briefing")
 async def client_telemetry_briefing(req: TelemetryRequest, authorization: str = Header(None)):
-    """
-    Menerima data telemetri riil dari Flutter HUD (HP)
-    dan meracik Good Morning Briefing secara personal berbasis data HP.
-    """
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
-        # Data Sensor Riil dari HP
         location_name = req.location
         temperature = req.temperature
         weather_condition = req.weather
@@ -1254,7 +1020,6 @@ async def client_telemetry_briefing(req: TelemetryRequest, authorization: str = 
         charging_status = "sedang diisi daya" if is_charging else "menggunakan baterai"
         events_str = ", ".join(calendar_events) if calendar_events else "Tidak ada agenda khusus tercatat."
 
-        # Racik Prompt Berdasarkan Data Sensor HP
         prompt = f"""
 [SYSTEM PROTOCOL: MOBILE-FIRST GOOD MORNING BRIEFING]
 Kamu adalah J.A.R.V.I.S., asisten pribadi canggih. Susun Good Morning Briefing untuk Bos dalam gaya bahasa yang elegan, efisien, dan siap tempur.
@@ -1273,12 +1038,10 @@ TUGAS:
 JANGAN meminta data tambahan lagi.
 """
         briefing_text = ask_jarvis(prompt)
-        
         return {
             "status": "SUCCESS",
             "briefing_message": f"🌅 **[GOOD MORNING BRIEFING - MOBILE INTEL]**\n\n{briefing_text}"
         }
-
     except Exception as e:
         print(f"🚨 [TELEMETRY ERROR]: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1288,34 +1051,19 @@ async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str
     if authorization != CLIENT_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Access Denied")
     
-    # 1. Kirim ke Telegram (Sebagai Backup)
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": ALLOWED_CHAT_ID, "text": req.alert_message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"[!] Gagal kirim Proactive Alert ke Telegram: {e}")
-
-    # 2. 🔥 BROADCAST KE HUD HP JIKA SEDANG DIBUKA
+    # Broadcast eksklusif ke Jarvis HUD
     for ws in ACTIVE_HUD_CONNECTIONS:
         try:
-            # Kirim teks notifikasi ke layar chat
             await ws.send_json({"type": "text_chunk", "content": f"\n🚨 *SYSTEM ALERT*\n{req.alert_message}\n"})
-            
-            # Buatkan suara peringatan instan
-            audio_b64 = generate_gtts_base64_sync("Peringatan, Bos. Ada sistem yang overload.", lang='id')
+            audio_b64 = generate_gtts_base64_sync("Peringatan, Bos. Ada sistem yang memerlukan perhatian.")
             await ws.send_json({"type": "stream_end", "audio_base64": audio_b64})
         except:
             pass
             
     return {"status": "alert_delivered"}
 
-# ==============================================================================
-# 🩺 PROJECT V.E.R.I.T.A.S. AUDIT ENDPOINT (JARVIS HUD ONLY)
-# ==============================================================================
 @web_app.get("/client/audit")
 def client_veritas_audit():
-    """Endpoint Fast Audit khusus untuk Jarvis HUD HP"""
     try:
         from stark_diagnostic import StarkDiagnosticSuite
         suite = StarkDiagnosticSuite()
@@ -1333,21 +1081,16 @@ async def global_fastapi_exception_handler(request: Request, exc: Exception):
         content={"status": "error", "message": "Internal Server Error detected. VERONICA Auto-Fixer has been notified."}
     )
 
-# ==========================================
-# ULTRA-LOW LATENCY STREAMING VOICE & TEXT HUB
-# ==========================================
 @web_app.websocket("/ws/stream_chat")
 async def websocket_stream_chat_endpoint(websocket: WebSocket):
     await websocket.accept()
-    ACTIVE_HUD_CONNECTIONS.append(websocket) # 🔥 Daftarkan HUD ke sistem
+    ACTIVE_HUD_CONNECTIONS.append(websocket)
     print("⚡ [LOW-LATENCY STREAM] HUD Client connected.")
-    
     try:
         while True:
             data = await websocket.receive_text()
             if not data: continue
 
-            # CEK INTENT LOKAL DULU SEBELUM KE GEMINI
             intent = route_natural_language_command(data)
             if intent.get("status") == "EXECUTE":
                 reply_text = intent.get("reply")
@@ -1355,7 +1098,6 @@ async def websocket_stream_chat_endpoint(websocket: WebSocket):
                 audio_b64 = generate_gtts_base64_sync(reply_text)
                 await websocket.send_json({"type": "stream_end", "audio_base64": audio_b64})
                 continue
-                
             elif intent.get("status") == "EXECUTE_DIAGRAM":
                 await websocket.send_json({"type": "text_chunk", "content": "Mohon gunakan Tab FRIDAY atau ketik tanpa streaming untuk render diagram via HTTP, Bos."})
                 await websocket.send_json({"type": "stream_end"})
@@ -1374,7 +1116,6 @@ async def websocket_stream_chat_endpoint(websocket: WebSocket):
                     await websocket.send_json({"type": "text_chunk", "content": chunk.text})
                     await asyncio.sleep(0.01)
 
-            # Generate TTS setelah teks selesai dan kirim audionya
             audio_b64 = generate_gtts_base64_sync(full_reply)
             await websocket.send_json({"type": "stream_end", "audio_base64": audio_b64})
 
@@ -1383,7 +1124,7 @@ async def websocket_stream_chat_endpoint(websocket: WebSocket):
     except Exception as e:
         print(f"🚨 [STREAM ERROR]: {e}")
     finally:
-        ACTIVE_HUD_CONNECTIONS.remove(websocket) # 🔥 Hapus HUD dari daftar jika aplikasi ditutup
+        ACTIVE_HUD_CONNECTIONS.remove(websocket)
         try: await websocket.close()
         except: pass
 
@@ -1393,686 +1134,8 @@ def run_fastapi():
     uvicorn.run(web_app, host="0.0.0.0", port=port)
 
 # ==========================================
-# TELEGRAM BOT HANDLERS & COMMANDS
-# ==========================================
-def clean_markdown_to_html(text: str) -> str:
-    if not text: return ""
-    text = html.escape(text)
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
-    return text
-
-async def safe_reply(update: Update, text: str):
-    try: await update.message.reply_html(clean_markdown_to_html(text))
-    except: await update.message.reply_text(text)
-
-async def unified_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        user_msg = update.message.text or "[Non-Text Message]"
-        send_security_alert(chat_id, user_msg)
-        return
-
-    user_text = update.message.text or ""
-    if not user_text: return
-    
-    voice_triggers = ["pake suara", "pakai suara", "balas suara", "pake voice", "pakai voice", "pake vn"]
-    if any(kw in user_text.lower() for kw in voice_triggers):
-        reply = ask_jarvis(user_text)
-        audio_path = await generate_voice_response(reply)
-        if audio_path and os.path.exists(audio_path):
-            with open(audio_path, 'rb') as v_out:
-                await update.message.reply_voice(voice=v_out)
-            os.remove(audio_path)
-        else:
-            await safe_reply(update, reply)
-    else:
-        reply_text = ask_jarvis(user_text)
-        await safe_reply(update, reply_text)
-
-async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID:
-        send_security_alert(chat_id, "[Voice Note Intrusion Attempt]")
-        return
-
-    voice_file = await update.message.voice.get_file()
-    ogg_path = f"user_voice_{int(time.time())}.ogg"
-    await voice_file.download_to_drive(ogg_path)
-
-    try:
-        with open(ogg_path, "rb") as f:
-            audio_bytes = f.read()
-
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=[
-                {"mime_type": "audio/ogg", "data": audio_bytes},
-                f"{JARVIS_PERSONA}\n\nDengarkan suara Bos di atas, pahami pesannya, lalu berikan jawaban yang singkat, padat, dan luwes."
-            ]
-        )
-        transcribed_reply = response.text
-        clean_reply = re.sub(r'#+\s*', '', transcribed_reply).replace('**', '').replace('*', '')
-
-        text_triggers = ["balas teks", "balas chat", "ketik aja", "tanpa suara", "tanpa voice"]
-        if any(kw in clean_reply.lower() for kw in text_triggers):
-            await safe_reply(update, clean_reply)
-        else:
-            voice_reply_path = await generate_voice_response(clean_reply)
-            if voice_reply_path and os.path.exists(voice_reply_path):
-                with open(voice_reply_path, 'rb') as v_out:
-                    await update.message.reply_voice(voice=v_out)
-                os.remove(voice_reply_path)
-            else:
-                await safe_reply(update, clean_reply)
-
-    except Exception as e:
-        print(f"❌ Error Voice Processing: {e}")
-        await update.message.reply_text(f"🚨 Maaf Bos, gagal memproses suara: {e}")
-    finally:
-        if os.path.exists(ogg_path):
-            os.remove(ogg_path)
-
-async def lockdown_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global IS_LOCKDOWN
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    IS_LOCKDOWN = True
-    await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN ACTIVATED!*\nSeluruh API dan sistem Jarvis sekarang dikunci.")
-
-async def unlock_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global IS_LOCKDOWN
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    IS_LOCKDOWN = False
-    await update.message.reply_text("🔓 *STARK PROTOCOL UNLOCKED.* Sistem Jarvis kembali beroperasi normal, Bos!")
-
-async def legion_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if len(context.args) < 2:
-        await update.message.reply_text("Format salah, Bos!\nContoh: `/legion research cari berita terbaru AI`")
-        return
-
-    agent_type = context.args[0].lower()
-    task_prompt = " ".join(context.args[1:])
-
-    await update.message.reply_text(f"🤖 Sub-Agent ({agent_type.upper()}) dikirim ke background!")
-    threading.Thread(target=legion_sub_agent_task, args=(agent_type, task_prompt), daemon=True).start()
-
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    await update.message.reply_text("👁️ Jarvis sedang menganalisis foto/screenshot...")
-    photo_file = await update.message.photo[-1].get_file()
-    image_bytes = await photo_file.download_as_bytearray()
-    
-    caption = update.message.caption or ""
-    reply_text = ask_jarvis_with_image(bytes(image_bytes), caption)
-    await safe_reply(update, reply_text)
-
-async def status_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    cpu_usage = psutil.cpu_percent()
-    ram_usage = psutil.virtual_memory().percent
-    
-    status_msg = f"""
-📊 JARVIS STARK SYSTEM HEALTH:
-• Lockdown Status: {'🔒 LOCKED' if IS_LOCKDOWN else '🟢 NORMAL'}
-• CPU Usage: {cpu_usage}%
-• RAM Usage: {ram_usage}%
-• Active Protocols: Security, Legion Sub-Agents, IoT Bridge
-• Server Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} WIB
-"""
-    await update.message.reply_text(status_msg)
-
-async def voice_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    user_prompt = " ".join(context.args) if context.args else "Halo Bos, ada yang bisa Jarvis bantu?"
-    reply_text = ask_jarvis(user_prompt)
-    
-    voice_path = await generate_voice_response(reply_text)
-    if voice_path and os.path.exists(voice_path):
-        with open(voice_path, 'rb') as voice_file:
-            await update.message.reply_voice(voice=voice_file)
-        os.remove(voice_path)
-    else:
-        await safe_reply(update, reply_text)
-
-async def code_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if not context.args:
-        await update.message.reply_text("Mohon sertakan instruksi kodingannya, Bos!")
-        return
-
-    prompt_req = " ".join(context.args)
-    await update.message.reply_text("🤖 Jarvis Code Agent sedang memproses & menguji kodingan...")
-
-    is_success, status_msg, file_path = generate_and_test_code(prompt_req)
-    await update.message.reply_text(status_msg)
-
-    if is_success and os.path.exists(file_path):
-        with open(file_path, 'rb') as doc:
-            await update.message.reply_document(document=doc, filename=file_path)
-
-async def pdf_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    document = update.message.document
-    if document.mime_type == 'application/pdf':
-        await update.message.reply_text("📥 Menerima file PDF, Jarvis sedang mempelajari isinya...")
-        
-        file = await context.bot.get_file(document.file_id)
-        temp_pdf_path = f"temp_{document.file_name}"
-        await file.download_to_drive(temp_pdf_path)
-
-        res_msg = process_pdf_document(temp_pdf_path)
-        await update.message.reply_text(res_msg)
-
-        if os.path.exists(temp_pdf_path):
-            os.remove(temp_pdf_path)
-
-async def diagram_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if not context.args:
-        await update.message.reply_text("Sertakan alur/topik diagramnya ya, Bos!\nContoh: `/diagram Client -> FastAPI -> SQLite -> Gemini`")
-        return
-
-    raw_input = " ".join(context.args)
-    await update.message.reply_text("🎨 Jarvis sedang menggambar diagram visual...")
-
-    steps = [step.strip() for step in raw_input.split("->")]
-    edges = [(steps[i], steps[i+1]) for i in range(len(steps)-1)] if len(steps) > 1 else []
-
-    if edges:
-        diagram_img = generate_system_diagram(edges, title="STARK SYSTEM WORKFLOW")
-        if diagram_img and os.path.exists(diagram_img):
-            with open(diagram_img, 'rb') as photo:
-                await update.message.reply_photo(photo=photo, caption=f"📊 *Diagram Visual Workflow*\n`{raw_input}`")
-            os.remove(diagram_img)
-            return
-
-    await update.message.reply_text("🚨 Gagal menggambar diagram. Gunakan format panah `->`.")
-
-async def cmd_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global LOCAL_COMMAND_QUEUE
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses terminal ditutup.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Sertakan perintah shell yang mau dijalankan ya, Bos!")
-        return
-
-    command_to_run = " ".join(context.args)
-    LOCAL_COMMAND_QUEUE.append(command_to_run)
-    await update.message.reply_text(f"⚡ *E.D.I.T.H. Hybrid Dispatch:* Perintah `{command_to_run}` dikirim ke antrean PC lokal Bos...", parse_mode="Markdown")
-
-async def journal_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    await update.message.reply_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*")
-    threading.Thread(target=generate_daily_journal_job, daemon=True).start()
-
-async def testbug_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    await update.message.reply_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*")
-    try:
-        _ = 100 / 0
-    except Exception:
-        error_msg = traceback.format_exc()
-        threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
-
-async def git_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses Git ditutup.")
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "⚒️ *PROJECT HEPHAESTUS DEVOPS ENGINE*\n\n"
-            "Format perintah:\n"
-            "• `/git status`\n"
-            "• `/git pull`\n"
-            "• `/git push <pesan commit>`",
-            parse_mode="Markdown"
-        )
-        return
-
-    action = context.args[0].lower()
-    commit_msg = " ".join(context.args[1:]) if len(context.args) > 1 else ""
-
-    await update.message.reply_text(f"⚒️ *HEPHAESTUS sedang mengeksekusi Git {action.upper()}...*")
-
-    def run_async_git():
-        report = execute_git_workflow(action, commit_msg)
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": report,
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url, json=payload)
-        except Exception as e:
-            print(f"[!] Gagal kirim output Git: {e}")
-
-    threading.Thread(target=run_async_git, daemon=True).start()
-
-# ==========================================
-# PROJECT STARK-OVERSEER: INTERACTIVE MENU ENGINE
-# ==========================================
-async def menu_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    keyboard = [
-        [
-            InlineKeyboardButton("📊 System Health", callback_data="btn_status"),
-            InlineKeyboardButton("📖 Daily Journal", callback_data="btn_journal")
-        ],
-        [
-            InlineKeyboardButton("🔒 Toggle Lockdown", callback_data="btn_lockdown"),
-            InlineKeyboardButton("🧪 Test VERONICA Bug", callback_data="btn_testbug")
-        ],
-        [
-            InlineKeyboardButton("🎙️ Voice Mode Info", callback_data="btn_voice_info"),
-            InlineKeyboardButton("🎨 Diagram Help", callback_data="btn_diagram_info")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    status_indicator = "🔒 LOCKED" if IS_LOCKDOWN else "🟢 ONLINE"
-    message_text = f"""
-🎛️ *J.A.R.V.I.S. STARK-OVERSEER CONTROL CENTER*
-Status Sistem: *{status_indicator}*
-
-Silakan pilih protokol yang ingin dieksekusi, Bos:
-"""
-
-    if update.message:
-        await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode="Markdown")
-    elif update.callback_query:
-        await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode="Markdown")
-
-async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global IS_LOCKDOWN
-
-    query = update.callback_query
-    chat_id = str(query.message.chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    await query.answer()
-    data = query.data
-
-    if data == "btn_status":
-        cpu_usage = psutil.cpu_percent()
-        ram_usage = psutil.virtual_memory().percent
-        status_msg = f"""
-📊 *STARK SYSTEM HEALTH REPORT*
-• Lockdown Status: {'🔒 LOCKED' if IS_LOCKDOWN else '🟢 NORMAL'}
-• CPU Usage: {cpu_usage}%
-• RAM Usage: {ram_usage}%
-• Memory Engine: SQLite & ChromaDB Active
-• Server Time: {datetime.datetime.now().strftime('%H:%M:%S')} WIB
-"""
-        keyboard = [[InlineKeyboardButton("🔙 Kembali ke Menu Utama", callback_data="btn_main_menu")]]
-        await query.edit_message_text(status_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-    elif data == "btn_journal":
-        await query.edit_message_text("🧠 *T.A.C.H.I. sedang merangkum Jurnal Progres Hari Ini...*", parse_mode="Markdown")
-        threading.Thread(target=generate_daily_journal_job, daemon=True).start()
-
-    elif data == "btn_lockdown":
-        IS_LOCKDOWN = not IS_LOCKDOWN
-        state_str = "🔒 *LOCKED*" if IS_LOCKDOWN else "🔓 *UNLOCKED*"
-        await query.edit_message_text(f"🛡️ *STARK SECURITY:* Status Lockdown berhasil diubah menjadi {state_str}.", parse_mode="Markdown")
-
-    elif data == "btn_testbug":
-        await query.edit_message_text("🧪 *Memicu simulasi ZeroDivisionError untuk menguji VERONICA...*", parse_mode="Markdown")
-        try:
-            _ = 100 / 0
-        except Exception:
-            error_msg = traceback.format_exc()
-            threading.Thread(target=veronica_auto_fix_bug, args=(error_msg,), daemon=True).start()
-
-    elif data == "btn_voice_info":
-        await query.edit_message_text("🎙️ *VOICE CONVERSATION MODE*\nTahan tombol Mic di Telegram untuk mengirim Voice Note. Jarvis akan merespons dengan Balasan Suara murni!", parse_mode="Markdown")
-
-    elif data == "btn_diagram_info":
-        await query.edit_message_text("🎨 *MARK-UI DIAGRAM GENERATOR*\nKetik perintah:\n`/diagram NodeA -> NodeB -> NodeC`", parse_mode="Markdown")
-
-    elif data == "btn_main_menu":
-        await menu_command_handler(update, context)
-
-async def web_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Akses browser ditutup.")
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "🌐 *PROJECT FRIDAY BROWSER AUTOMATION*\n\n"
-            "Format Perintah:\n"
-            "• `/web <url>` - Mengambil screenshot full-page halaman web\n"
-            "• `/web <url> text` - Ekstraksi seluruh teks tersembunyi/rendered dari web",
-            parse_mode="Markdown"
-        )
-        return
-
-    target_url = context.args[0]
-    if not target_url.startswith("http"):
-        target_url = "https://" + target_url
-
-    action_type = "text" if len(context.args) > 1 and context.args[1].lower() == "text" else "screenshot"
-
-    await update.message.reply_text(f"🌐 *FRIDAY Agent meluncur ke:* `{target_url}`...")
-
-    def run_async_browser():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        success, message, file_path = loop.run_until_complete(
-            execute_browser_automation(target_url, action=action_type)
-        )
-        loop.close()
-
-        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        
-        if success and file_path and os.path.exists(file_path):
-            photo_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
-            with open(file_path, 'rb') as photo:
-                requests.post(photo_url, data={"chat_id": ALLOWED_CHAT_ID, "caption": message}, files={"photo": photo})
-            os.remove(file_path)
-        else:
-            payload = {"chat_id": ALLOWED_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-            requests.post(url_api, json=payload)
-
-    threading.Thread(target=run_async_browser, daemon=True).start()
-
-async def sentinel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    await update.message.reply_text("🛰️ *ULTRON-SENTINEL sedang memindai kesehatan seluruh endpoint & server...*")
-    threading.Thread(target=ultron_sentinel_ping_job, daemon=True).start()
-
-async def recall_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if not context.args:
-        await update.message.reply_text("Sertakan kata kunci atau topik yang ingin diingat kembali, Bos!\nContoh: `/recall strategi deployment minggu lalu`")
-        return
-
-    query_topic = " ".join(context.args)
-    await update.message.reply_text(f"🧠 *M.I.N.D. PALACE:* Memindai arsip memori untuk topik `{query_topic}`...")
-
-    retrieved_memory = search_vector_db(query_topic, n_results=5)
-    
-    if not retrieved_memory or "PENGETAHUAN TERKAIT" not in retrieved_memory:
-        await update.message.reply_text(f"🔍 Maaf Bos, tidak ditemukan arsip memori yang cocok dengan topik `{query_topic}`.")
-        return
-
-    prompt = f"""
-Kamu adalah M.I.N.D. PALACE Engine milik Jarvis.
-Berikut adalah data arsip memori lama yang ditemukan dari database terkait topik "{query_topic}":
-
-{retrieved_memory}
-
-Tugasmu:
-Rangkum dan jelaskan kembali informasi tersebut secara padat, jelas, dan bernada loyal kepada Bos. Beritahu Bos apa yang dulu pernah kita bahas mengenai hal ini.
-"""
-    summary_result = ask_jarvis(prompt)
-    await safe_reply(update, f"📖 *M.I.N.D. PALACE MEMORY RECALL*\n\n{summary_result}")
-
-async def pc_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK PROTOCOL LOCKDOWN IS ACTIVE.* Kontrol PC dikunci.")
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "💻 *PROJECT LOCAL-OVERRIDE (PC CONTROL)*\n\n"
-            "Format Perintah:\n"
-            "• `/pc lock` - Mengunci layar komputer (Lock Screen)\n"
-            "• `/pc info` - Menampilkan spesifikasi & status hardware PC host\n"
-            "• `/pc screenshot` - Mengambil tangkapan layar (screenshot) monitor PC saat ini",
-            parse_mode="Markdown"
-        )
-        return
-
-    action = context.args[0].lower()
-
-    if action == "lock":
-        try:
-            if os.name == 'nt':
-                subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=True)
-                await update.message.reply_text("🔒 Layar PC berhasil dikunci, Bos!")
-            else:
-                await update.message.reply_text("⚠️ Perintah lock screen saat ini hanya didukung pada host Windows.")
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal mengunci layar: {e}")
-
-    elif action == "info":
-        cpu_freq = psutil.cpu_freq().current if hasattr(psutil, "cpu_freq") else "N/A"
-        battery = psutil.sensors_battery()
-        battery_status = f"{battery.percent}% ({'Charging' if battery.power_plugged else 'Discharging'})" if battery else "N/A (Desktop)"
-        
-        info_text = f"""
-💻 *HOST PC STATUS OVERRIDE:*
-• OS: `{sys.platform}`
-• CPU Cores: `{psutil.cpu_count(logical=True)} Core`
-• CPU Frequency: `{cpu_freq} MHz`
-• RAM Total/Used: `{round(psutil.virtual_memory().total / (1024**3), 2)} GB` (`{psutil.virtual_memory().percent}%`)
-• Disk Usage: `{psutil.disk_usage('/').percent}%`
-• Power/Battery: `{battery_status}`
-"""
-        await update.message.reply_text(info_text, parse_mode="Markdown")
-
-    elif action == "screenshot":
-        try:
-            import pyautogui
-            snap_path = f"pc_snap_{int(time.time())}.png"
-            pyautogui.screenshot(snap_path)
-            
-            with open(snap_path, 'rb') as photo:
-                await update.message.reply_photo(photo=photo, caption="📸 *Live Host PC Screenshot*")
-            os.remove(snap_path)
-        except ImportError:
-            await update.message.reply_text("⚠️ Library `pyautogui` belum terpasang di environment host. Ketik `pip install pyautogui` di terminal.")
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal mengambil screenshot PC: {e}")
-    else:
-        await update.message.reply_text("🚨 Aksi PC tidak dikenali. Ketik `/pc` untuk melihat daftar perintah.")
-
-async def pc_advanced_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK LOCKDOWN ACTIVE.*")
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "💻 *DEEP OS CONTROL (LOCAL-OVERRIDE)*\n\n"
-            "Format Perintah:\n"
-            "• `/pc info` - Status presisi Hardware PC\n"
-            "• `/pc open <app>` - Membuka aplikasi\n"
-            "• `/pc search <nama_file>` - Mencari file\n"
-            "• `/pc screenshot` - Ambil screenshot layar PC",
-            parse_mode="Markdown"
-        )
-        return
-
-    sub_action = context.args[0].lower()
-    param = " ".join(context.args[1:]) if len(context.args) > 1 else ""
-
-    if sub_action == "info":
-        try:
-            mem = psutil.virtual_memory()
-            total_ram = round(mem.total / (1024**3), 2)
-            used_ram = round(mem.used / (1024**3), 2)
-            
-            disk = psutil.disk_usage('/')
-            total_disk = round(disk.total / (1024**3), 2)
-            used_disk = round(disk.used / (1024**3), 2)
-
-            battery = psutil.sensors_battery()
-            if battery:
-                plug_status = "Mengisi Daya (Charging)" if battery.power_plugged else "Menggunakan Baterai"
-                battery_status = f"{battery.percent}% ({plug_status})"
-            else:
-                battery_status = "Desktop / Sumber Daya Listrik Langsung"
-
-            info_text = f"""
-💻 *HOST PC SYSTEM METRICS (VERIFIED):*
-• OS Platform: `{sys.platform}`
-• CPU Usage: `{psutil.cpu_percent(interval=0.5)}%`
-• Logical Cores: `{psutil.cpu_count(logical=True)} Core`
-• RAM Total / Terpakai: `{used_ram} GB / {total_ram} GB` (`{mem.percent}%`)
-• Disk Utama C:/ Terpakai: `{used_disk} GB / {total_disk} GB` (`{disk.percent}%`)
-• Power / Baterai: `{battery_status}`
-"""
-            await update.message.reply_text(info_text, parse_mode="Markdown")
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal membaca info hardware: {e}")
-
-    elif sub_action == "open" and param:
-        try:
-            if os.name == 'nt':
-                subprocess.Popen(f"start {param}", shell=True)
-            else:
-                subprocess.Popen([param])
-            await update.message.reply_text(f"🚀 Perintah membuka `{param}` dieksekusi, Bos!")
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal membuka aplikasi: {e}")
-
-    elif sub_action == "screenshot":
-        try:
-            import pyautogui
-            snap_path = f"pc_snap_{int(time.time())}.png"
-            pyautogui.screenshot(snap_path)
-            with open(snap_path, 'rb') as photo:
-                await update.message.reply_photo(photo=photo, caption="📸 *Live Host PC Screenshot*")
-            os.remove(snap_path)
-        except Exception as e:
-            await update.message.reply_text(f"🚨 Gagal screenshot (Pastikan pyautogui terinstal): {e}")
-    else:
-        await update.message.reply_text("🚨 Argumen perintah `/pc` tidak valid.")
-
-async def vision_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    if chat_id != ALLOWED_CHAT_ID: return
-
-    if IS_LOCKDOWN:
-        await update.message.reply_text("🔒 *STARK LOCKDOWN ACTIVE.* Sistem mata komputer dikunci.")
-        return
-
-    custom_prompt = " ".join(context.args) if context.args else "Periksa ruangan di depan kamera, apakah ada hal penting atau aktivitas yang terlihat?"
-    
-    await update.message.reply_text("👁️ *COMPUTER VISION:* Mengaktifkan lensa pemantau...")
-
-    def run_async_vision():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result_report = loop.run_until_complete(computer_vision_snapshot_analysis(custom_prompt))
-        loop.close()
-
-        url_api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": ALLOWED_CHAT_ID,
-            "text": f"👁️ *AI WATCHER REPORT*\n\n{result_report}",
-            "parse_mode": "Markdown"
-        }
-        try:
-            requests.post(url_api, json=payload)
-        except Exception as e:
-            print(f"[!] Gagal kirim laporan vision: {e}")
-
-    threading.Thread(target=run_async_vision, daemon=True).start()
-
-def run_telegram_bot():
-    while True:
-        try:
-            print("🤖 Memulai Telegram Bot...")
-            app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
-            app.add_handler(CommandHandler("start", menu_command_handler))
-            app.add_handler(CommandHandler("menu", menu_command_handler))
-            app.add_handler(CallbackQueryHandler(button_callback_handler))
-            
-            app.add_handler(CommandHandler("lockdown", lockdown_command_handler))
-            app.add_handler(CommandHandler("unlock", unlock_command_handler))
-            app.add_handler(CommandHandler("legion", legion_command_handler))
-            
-            app.add_handler(CommandHandler("voice", voice_command_handler))
-            app.add_handler(CommandHandler("code", code_command_handler))
-            app.add_handler(CommandHandler("status", status_command_handler))
-            
-            app.add_handler(MessageHandler(filters.VOICE, voice_message_handler))
-            app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-            app.add_handler(MessageHandler(filters.Document.PDF, pdf_document_handler))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unified_handler))
-            
-            app.add_handler(CommandHandler("diagram", diagram_command_handler))
-            app.add_handler(CommandHandler("research", research_command_handler))
-            app.add_handler(CommandHandler("cmd", cmd_command_handler))
-            app.add_handler(CommandHandler("journal", journal_command_handler))
-            app.add_handler(CommandHandler("testbug", testbug_command_handler))
-            app.add_handler(CommandHandler("git", git_command_handler))
-            app.add_handler(CommandHandler("web", web_command_handler))
-            app.add_handler(CommandHandler("sentinel", sentinel_command_handler))
-            app.add_handler(CommandHandler("recall", recall_command_handler))
-            app.add_handler(CommandHandler("pc", pc_command_handler))
-            app.add_handler(CommandHandler("pc_advance", pc_advanced_command_handler))
-            app.add_handler(CommandHandler("vision", vision_command_handler))
-
-            app.run_polling(drop_pending_updates=True, stop_signals=None)
-        except Exception as e:
-            print(f"⚠️ Telegram Error (Auto-restart 5 detik): {e}")
-            time.sleep(5)
-
-# ==========================================
 # MAIN EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    print("🤖 Jarvis Stark Mega-Engine Full Running...")
-    
-    try:
-        subprocess.Popen(["python", "jarvis_discord.py"])
-    except Exception as e:
-        print(f"⚠️ Discord error: {e}")
-        
-    telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    telegram_thread.start()
-
+    print("🤖 Jarvis Stark HUD-Core Engine Full Running...")
     run_fastapi()
