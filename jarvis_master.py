@@ -52,8 +52,10 @@ import uvicorn
 # ==========================================
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 BASE_DIR = os.getcwd()
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 MODEL_NAME = "gemini-3.6-flash"
 sandbox_manager = StarkSandboxManager()
 IS_LOCKDOWN = False

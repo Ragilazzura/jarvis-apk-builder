@@ -1,8 +1,10 @@
 import os
 import re
+import sys
 import requests
 from google import genai
 from stark_sandbox import StarkSandboxManager
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 class AgenticSquadOrchestrator:
     def __init__(self, api_key):
