@@ -25,12 +25,14 @@ try:
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
+from dotenv import load_dotenv
 from gtts import gTTS
 from PIL import Image
 from bs4 import BeautifulSoup
 from google import genai
 import chromadb
 from pypdf import PdfReader
+from stark_sandbox import StarkSandboxManager
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, MessageHandler, CommandHandler, 
@@ -52,15 +54,28 @@ import uvicorn
 # ==========================================
 # KONFIGURASI UTAMA & STARK SECURITY STATE
 # ==========================================
+load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID", "5883853281")
 
 BASE_DIR = os.getcwd()
 MODEL_NAME = "gemini-3.6-flash"
-
-# Status Keamanan Stark Protocol
+sandbox_manager = StarkSandboxManager()
 IS_LOCKDOWN = False
+
+
+def load_agentic_squad_orchestrator():
+    """Load AgenticSquadOrchestrator without crashing when the module is unavailable."""
+    try:
+        module_name = "orchestrator"
+        if BASE_DIR not in sys.path:
+            sys.path.insert(0, BASE_DIR)
+
+        module = __import__(module_name, fromlist=["AgenticSquadOrchestrator"])
+        return getattr(module, "AgenticSquadOrchestrator", None)
+    except Exception:
+        return None
 
 LOCAL_COMMAND_QUEUE = []
 LOCAL_COMMAND_RESULT = None
@@ -181,6 +196,24 @@ def get_all_memories() -> str:
     except Exception as e: 
         return f"Error DB: {e}"
 
+def handle_sandbox_command(user_input: str) -> str:
+    """Jembatan antara perintah chat dan StarkSandboxManager"""
+    global sandbox_manager
+    
+    # Contoh perintah: "Jarvis, buat file 'coba.py' isi 'print(1+1)' di sandbox"
+    if "buat file" in user_input.lower() and "sandbox" in user_input.lower():
+        # Logika parsing sederhana (bisa kita pertajam nanti dengan AI)
+        # Untuk sekarang, kita panggil manager
+        filename = "temp_fitur.py" # Contoh, nanti bisa dibuat dinamis
+        content = "print('Halo dari Sandbox!')" 
+        path = sandbox_manager.create_canvas_file(filename, content)
+        return f"📦 File dibuat di sandbox: {path}"
+        
+    elif "tes sandbox" in user_input.lower():
+        success, msg = sandbox_manager.test_sandbox_file("temp_fitur.py")
+        return f"🧪 Status Uji: {msg}"
+        
+    return "Perintah sandbox tidak dikenali, Bos."
 
 # ==========================================
 # PROJECT T.A.C.H.I.: AUTO-JOURNALING ENGINE
@@ -724,6 +757,10 @@ def route_natural_language_command(user_message: str) -> dict:
         LOCAL_COMMAND_QUEUE.append({"type": "MEDIA_CONTROL", "action": "play_pause"})
         return {"status": "EXECUTE", "reply": "Status pemutar media PC diperbarui."}
 
+    elif "sandbox" in msg_lower:
+            reply = handle_sandbox_command(user_message)
+            return {"status": "EXECUTE", "reply": reply}
+
     # 3. ⏰ SHUTDOWN & POWER CONTROL
     elif "matikan pc" in msg_lower or "shutdown pc" in msg_lower:
         numbers = re.findall(r'\d+', msg_lower)
@@ -828,6 +865,38 @@ def route_natural_language_command(user_message: str) -> dict:
             "reply": "🧪 [SIMULASI CRASH DIPICU]: Memperhatikan respons otomatis V.E.R.O.N.I.C.A. & A.S.C.A.R. secara real-time..."
         }
 
+    elif msg_lower.startswith("jalankan orchestrator") or msg_lower.startswith("buat fitur otonom"):
+        task_goal = user_message.replace("jalankan orchestrator", "").replace("buat fitur otonom", "").strip()
+        if not task_goal:
+            task_goal = "Buat modul utilitas penguji sistem sederhana"
+            
+        def run_async_orchestration():
+            orchestrator_cls = load_agentic_squad_orchestrator()
+            if orchestrator_cls is None:
+                local_port = os.getenv("PORT", 8080)
+                requests.post(
+                    f"http://127.0.0.1:{local_port}/client/proactive_alert",
+                    headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                    json={"alert_message": "[AGENTIC SQUAD] Modul orchestrator tidak tersedia di lingkungan ini."},
+                    timeout=10
+                )
+                return
+
+            orch = orchestrator_cls(api_key=GEMINI_API_KEY)
+            report = orch.orchestrate(task_goal)
+            
+            # Kirim laporan hasil akhir ke HUD HP / Telegram
+            local_port = os.getenv("PORT", 8080)
+            requests.post(
+                f"http://127.0.0.1:{local_port}/client/proactive_alert",
+                headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                json={"alert_message": report},
+                timeout=10
+            )
+
+        threading.Thread(target=run_async_orchestration, daemon=True).start()
+        return {"status": "EXECUTE", "reply": f"🤖 [AGENTIC SQUAD] Tim agen diaktifkan untuk misi: '{task_goal}'. Memulai proses di latar belakang..."}
+
     # 🛡️ PROTOKOL A.S.C.A.R. (SELF-MAINTENANCE ENGINE)
     elif any(k in msg_lower for k in ["ascar", "audit sistem", "periksa kode", "cek repositori", "ascar run"]):
         payload = {"type": "RUN_ASCAR_DIAGNOSTIC"}
@@ -914,6 +983,9 @@ class IoTCommandRequest(BaseModel):
     device_id: str
     action: str
     secret_key: str = ""
+
+class ProactiveAlertRequest(BaseModel):
+    alert_message: str
 
 @web_app.get("/")
 def read_root():
@@ -1112,9 +1184,6 @@ class DocumentIndexRequest(BaseModel):
     file_name: str
     content: str
 
-class ProactiveAlertRequest(BaseModel):
-    alert_message: str
-
 @web_app.post("/client/index_document")
 def receive_document_index(req: DocumentIndexRequest, authorization: str = Header(None)):
     if authorization != CLIENT_SECRET_KEY:
@@ -1240,9 +1309,6 @@ async def receive_proactive_alert(req: ProactiveAlertRequest, authorization: str
             pass
             
     return {"status": "alert_delivered"}
-
-class ProactiveAlertRequest(BaseModel):
-    alert_message: str
 
 # ==============================================================================
 # 🩺 PROJECT V.E.R.I.T.A.S. AUDIT ENDPOINT (JARVIS HUD ONLY)

@@ -5,16 +5,14 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
+val newBuildDir: Directory = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
 }
@@ -24,17 +22,20 @@ tasks.register<Delete>("clean") {
 }
 
 subprojects {
-    afterEvaluate {
-        val androidExtension = extensions.findByName("android") as? com.android.build.gradle.BaseExtension
-        androidExtension?.apply {
-            compileOptions {
-                sourceCompatibility = JavaVersion.VERSION_11
-                targetCompatibility = JavaVersion.VERSION_11
+    if (state.executed) {
+        // Jika project sudah terlanjur di-load, langsung timpa versinya!
+        plugins.withId("com.android.library") {
+            extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
+                compileSdk = 36
             }
         }
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-            kotlinOptions {
-                jvmTarget = "11"
+    } else {
+        // Jika belum, tunggu sampai di-load
+        afterEvaluate {
+            plugins.withId("com.android.library") {
+                extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
+                    compileSdk = 36
+                }
             }
         }
     }

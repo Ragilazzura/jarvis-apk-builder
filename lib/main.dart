@@ -1,18 +1,23 @@
 import 'dart:math' as math;
 import 'dart:io';
+import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // 💾 Storage lokal
-import 'package:flutter_markdown/flutter_markdown.dart'; // 📝 Render Markdown
+import 'package:shared_preferences/shared_preferences.dart'; 
+import 'package:record/record.dart'; 
+import 'package:open_wake_word/open_wake_word.dart';
+
 import 'hud_notification_service.dart';
 import 'services/telemetry_service.dart';
-import 'services/device_control_service.dart'; // 🕹️ Local Device Control Service
+import 'services/device_control_service.dart'; 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -127,9 +132,6 @@ class _HUDMainDashboardState extends State<HUDMainDashboard> {
   }
 }
 
-// ==========================================
-// TAB 1: JARVIS CORE (OMNI-CONVERSATIONAL UI)
-// ==========================================
 class JarvisCoreTab extends StatefulWidget {
   const JarvisCoreTab({super.key});
 
@@ -148,9 +150,13 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   File? _selectedImage;
 
   final String serverUrl = "https://worker-production-792b.up.railway.app";
-
+  
   late stt.SpeechToText _speech;
   bool _isListening = false;
+
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  StreamSubscription<Uint8List>? _micStreamSub;
+  bool _isWakeWordActive = false;
 
   late AnimationController _reactorController;
   late AnimationController _nanoActivityController;
@@ -170,10 +176,9 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       duration: const Duration(milliseconds: 800),
     );
 
-    // 📥 1. Muat Riwayat Chat dari Penyimpanan HP
     _loadSavedChatHistory();
+    _initOpenWakeWordEngine();
 
-    // 🌐 Listening Laporan WebSocket & Push
     JarvisWebSocketService().connect((data) {
       if (data["type"] == "text_chunk" && data["content"] != null) {
         _addMessage("jarvis", data["content"]);
@@ -185,11 +190,78 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       }
     });
 
-    // 🌅 Pemicu Otomatis Morning Briefing (Filter Jam 7 & 1x Sehari)
     _checkAndTriggerMorningBriefing();
   }
 
-  // 💾 A. SIMPAN CHAT KE MEMORI LOKAL HP
+  Future<void> _initOpenWakeWordEngine() async {
+    try {
+      bool success = await OpenWakeWord.init(
+        melModelAssetPath: 'assets/models/melspectrogram.onnx',
+        embModelAssetPath: 'assets/models/embedding_model.onnx',
+        wwModelAssetPath: 'assets/models/hey_jarvis_v0.1.onnx',
+      );
+
+      if (success) {
+        debugPrint("🛡️ OpenWakeWord Engine Berhasil Diinisialisasi!");
+        _startWakeWordStream();
+      } else {
+        debugPrint("🚨 Gagal menginisialisasi OpenWakeWord.");
+      }
+    } catch (e) {
+      debugPrint("🚨 Error Inisialisasi Wake Word: $e");
+    }
+  }
+
+  Future<void> _startWakeWordStream() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final stream = await _audioRecorder.startStream(const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ));
+
+        setState(() => _isWakeWordActive = true);
+        debugPrint("🛡️ Mendengarkan Wake Word 'Jarvis' di latar belakang...");
+
+        _micStreamSub = stream.listen((Uint8List rawData) {
+          try {
+            int validLength = rawData.lengthInBytes - (rawData.lengthInBytes % 2);
+            if (validLength <= 0) return;
+
+            Int16List pcmData = Int16List.view(
+              rawData.buffer, 
+              rawData.offsetInBytes, 
+              validLength ~/ 2,
+            );
+
+            OpenWakeWord.processAudio(pcmData);
+
+            if (OpenWakeWord.isActivated()) {
+              _onWakeWordDetected();
+            }
+          } catch (e) {
+            // Error per-frame diredam agar tidak memenuhi terminal
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("🚨 Gagal memulai Mic Stream: $e");
+    }
+  }
+
+  void _onWakeWordDetected() {
+    debugPrint("🚨 WAKE WORD 'JARVIS' TERDETEKSI!");
+    _stopWakeWordStream(); 
+    _listenVoice(); 
+  }
+
+  Future<void> _stopWakeWordStream() async {
+    await _micStreamSub?.cancel();
+    await _audioRecorder.stop();
+    if (mounted) setState(() => _isWakeWordActive = false);
+  }
+
   Future<void> _saveChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     List<Map<String, dynamic>> serializableMessages = _messages.map((m) {
@@ -202,7 +274,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     await prefs.setString('jarvis_chat_history', jsonEncode(serializableMessages));
   }
 
-  // 📥 B. MUAT CHAT SAAT APLIKASI DIBUKA
   Future<void> _loadSavedChatHistory() async {
     final prefs = await SharedPreferences.getInstance();
     String? savedData = prefs.getString('jarvis_chat_history');
@@ -216,25 +287,13 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
-  // 🌅 C. LOGIKA MORNING BRIEFING PRESISI (JAM 7 PAGI & 1X SEHARI)
   Future<void> _checkAndTriggerMorningBriefing() async {
     final now = DateTime.now();
-
-    // 1. Filter Jam: Hanya di jam 7 pagi (07:00 - 07:59)
-    if (now.hour != 7) {
-      debugPrint("ℹ️ Morning Briefing dilewati karena bukan jam 7 pagi.");
-      return;
-    }
+    if (now.hour != 7) return;
 
     final prefs = await SharedPreferences.getInstance();
     String todayDateStr = "${now.year}-${now.month}-${now.day}";
-    String? lastBriefingDate = prefs.getString('last_morning_briefing_date');
-
-    // 2. Filter Tanggal: Hentikan jika hari ini sudah pernah dipicu
-    if (lastBriefingDate == todayDateStr) {
-      debugPrint("ℹ️ Morning Briefing hari ini sudah pernah dipicu.");
-      return;
-    }
+    if (prefs.getString('last_morning_briefing_date') == todayDateStr) return;
 
     try {
       final telemetry = TelemetryService(
@@ -245,7 +304,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       String? briefingText = await telemetry.fetchMorningBriefing();
       if (briefingText != null && mounted) {
         _addMessage("jarvis", briefingText);
-
         try {
           await HudNotificationService.showInstantNotification(
             title: "🌅 J.A.R.V.I.S. MORNING BRIEFING",
@@ -254,8 +312,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
         } catch (e) {
           debugPrint("🔔 Notification fallback: $briefingText");
         }
-
-        // Tandai bahwa hari ini sudah dikirim
         await prefs.setString('last_morning_briefing_date', todayDateStr);
       }
     } catch (e) {
@@ -263,7 +319,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     }
   }
 
-  // 📩 D. TAMBAH PESAN BARU
   void _addMessage(String sender, String text, {File? image, Uint8List? imageBytes}) {
     if (!mounted) return;
     setState(() {
@@ -279,7 +334,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     _scrollToBottom();
   }
 
-  // 📋 E. SALIN TEKS KE CLIPBOARD HP
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -291,7 +345,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     );
   }
 
-  // 🕒 F. FORMAT TIMESTAMP HH:MM WIB
   String _formatTimestamp(String? isoString) {
     if (isoString == null) return "";
     try {
@@ -319,9 +372,10 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   Future<void> _playTtsAudio(String base64Audio) async {
     try {
       if (base64Audio.isNotEmpty) {
-        Uint8List audioBytes = base64Decode(base64Audio);
-        await _audioPlayer.stop();
-        await _audioPlayer.play(BytesSource(audioBytes));
+        await _audioPlayer.setAudioSource(
+          AudioSource.uri(Uri.parse('data:audio/mp3;base64,$base64Audio')),
+        );
+        await _audioPlayer.play();
       }
     } catch (e) {
       debugPrint("Error playing TTS audio: $e");
@@ -329,11 +383,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   }
 
   void _pickImage(ImageSource source) async {
-    final XFile? photo = await _picker.pickImage(
-      source: source,
-      imageQuality: 70,
-    );
-
+    final XFile? photo = await _picker.pickImage(source: source, imageQuality: 70);
     if (photo != null) {
       setState(() {
         _selectedImage = File(photo.path);
@@ -342,6 +392,8 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   }
 
   void _listenVoice() async {
+    if (_isWakeWordActive) await _stopWakeWordStream();
+
     if (!_isListening) {
       bool available = await _speech.initialize(
         onStatus: (status) {
@@ -349,9 +401,11 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
             if (mounted) {
               setState(() => _isListening = false);
               _nanoActivityController.reverse();
+              _startWakeWordStream(); 
             }
           }
         },
+        onError: (val) => debugPrint('STT Error: $val'),
       );
 
       if (available && mounted) {
@@ -361,6 +415,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
         });
 
         _speech.listen(
+          listenOptions: stt.SpeechListenOptions(localeId: 'id_ID'),
           onResult: (result) {
             if (mounted) {
               setState(() {
@@ -374,15 +429,13 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
         );
       }
     } else {
-      if (mounted) {
-        setState(() => _isListening = false);
-      }
+      if (mounted) setState(() => _isListening = false);
       _speech.stop();
       _nanoActivityController.reverse();
+      _startWakeWordStream();
     }
   }
 
-  // 🚀 FUNGSI UTAMA PENGIRIMAN PESAN & LOCAL DEVICE COMMAND PARSER
   Future<void> _sendMessage(String text, {bool isVoiceInput = false}) async {
     if (text.trim().isEmpty && _selectedImage == null) return;
 
@@ -395,90 +448,110 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     String lowerMsg = userMsg.toLowerCase();
     File? imageToSend = _selectedImage;
 
-    // -------------------------------------------------------------
-    // 🧠 LOCAL COMMAND PARSER (RESPONS INTERNAL HARMONIS LOKAL HP)
-    // -------------------------------------------------------------
+    _addMessage("user", userMsg.isEmpty ? "[Mengirim Gambar]" : userMsg, image: imageToSend);
+    _controller.clear();
+    setState(() {
+      _selectedImage = null;
+    });
 
-    // 🔦 1. KONTROL SENTER
-    if (lowerMsg.contains("nyalakan senter") || lowerMsg.contains("hidupkan senter")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
+    // 🧠 1. SMART LOCAL COMMAND PARSER: SENTER
+    if (RegExp(r'\b(nyalakan|hidupkan|turn on|aktifkan|on)\b.*\b(senter|flashlight|lampu|torch)\b').hasMatch(lowerMsg) || lowerMsg == "lumos") {
       String res = await DeviceControlService.toggleTorch(true);
       _addMessage("jarvis", res);
       return;
-    } else if (lowerMsg.contains("matikan senter") || lowerMsg.contains("padamkan senter")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
+    } else if (RegExp(r'\b(matikan|padamkan|turn off|nonaktifkan|off)\b.*\b(senter|flashlight|lampu|torch)\b').hasMatch(lowerMsg) || lowerMsg == "nox") {
       String res = await DeviceControlService.toggleTorch(false);
       _addMessage("jarvis", res);
       return;
     }
 
-    // 📊 2. DIAGNOSA STORAGE / MEMORI HP
-    if (lowerMsg.contains("cek storage") || lowerMsg.contains("cek penyimpanan") || lowerMsg.contains("diagnosa memori") || lowerMsg.contains("status memori")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
+    // ⏰ 2. SMART LOCAL COMMAND PARSER: ALARM SISTEM
+    if (RegExp(r'\b(alarm|bangunkan|pengingat|wake me up)\b').hasMatch(lowerMsg)) {
+      Match? match = RegExp(r'(\d{1,2})[:.](\d{2})').firstMatch(lowerMsg);
+      if (match != null) {
+        int hour = int.parse(match.group(1)!);
+        int minute = int.parse(match.group(2)!);
+        String res = await DeviceControlService.setSystemAlarm(hour, minute, "J.A.R.V.I.S. Alarm");
+        _addMessage("jarvis", res);
+        return;
+      } else {
+        _addMessage("jarvis", "Tolong sebutkan waktunya dengan jelas, Bos. Contoh: 'Set alarm jam 05:30'.");
+        return;
+      }
+    }
+
+    // 🔊 3. SMART LOCAL COMMAND PARSER: VOLUME & MUTE
+    if (RegExp(r'\b(volume|suara|bunyi)\b').hasMatch(lowerMsg) || RegExp(r'\b(mute|heningkan|bisukan)\b').hasMatch(lowerMsg)) {
+      if (RegExp(r'\b(mute|heningkan|bisukan|mati|0)\b').hasMatch(lowerMsg)) {
+        String res = await DeviceControlService.setVolume(0.0);
+        _addMessage("jarvis", res);
+        return;
+      } else if (RegExp(r'\b(max|maksimal|penuh|100)\b').hasMatch(lowerMsg)) {
+        String res = await DeviceControlService.setVolume(1.0);
+        _addMessage("jarvis", res);
+        return;
+      } else {
+        Match? volMatch = RegExp(r'(\d{1,3})\s*%?').firstMatch(lowerMsg);
+        if (volMatch != null) {
+          double level = double.parse(volMatch.group(1)!) / 100.0;
+          String res = await DeviceControlService.setVolume(level);
+          _addMessage("jarvis", res);
+          return;
+        }
+      }
+    }
+
+    // 🔋 4. SMART LOCAL COMMAND PARSER: CEK BATERAI
+    if (RegExp(r'\b(baterai|battery|daya|sisa baterai)\b').hasMatch(lowerMsg)) {
+      String res = await DeviceControlService.checkBatteryStatus();
+      _addMessage("jarvis", res);
+      return;
+    }
+
+    // 📊 5. SMART LOCAL COMMAND PARSER: DIAGNOSA STORAGE
+    if (RegExp(r'\b(cek|diagnosa|status|sisa)\b.*\b(storage|penyimpanan|memori|memory|ruang)\b').hasMatch(lowerMsg)) {
       String res = await DeviceControlService.checkStorageDiagnostics();
       _addMessage("jarvis", res);
       return;
     }
 
-    // 🚀 3. LAUNCH APLIKASI UTAMA
-    if (lowerMsg.startsWith("buka spotify")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
-      String res = await DeviceControlService.launchExternalApp(
-        appScheme: "spotify://",
-        fallbackUrl: "https://open.spotify.com",
-        appName: "Spotify",
-      );
-      _addMessage("jarvis", res);
+    // 🚀 6. SMART LOCAL COMMAND PARSER: APLIKASI EKSTERNAL (SPOTIFY, YOUTUBE, WHATSAPP)
+    if (lowerMsg.contains("spotify")) {
+      String query = lowerMsg.replaceAll(RegExp(r'\b(tolong|buka|open|luncurkan|mainkan|play|cari|lagu|musik|di|on|spotify)\b|[^\w\s]'), '').trim();
+      if (query.isNotEmpty) {
+        String res = await DeviceControlService.openMediaWithQuery("Spotify", query);
+        _addMessage("jarvis", res);
+      } else {
+        String res = await DeviceControlService.launchExternalApp(
+          appScheme: "spotify://", fallbackUrl: "https://open.spotify.com", appName: "Spotify"
+        );
+        _addMessage("jarvis", res);
+      }
       return;
-    } else if (lowerMsg.startsWith("buka youtube")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
-      String res = await DeviceControlService.launchExternalApp(
-        appScheme: "vnd.youtube://",
-        fallbackUrl: "https://www.youtube.com",
-        appName: "YouTube",
-      );
-      _addMessage("jarvis", res);
+    } 
+    else if (lowerMsg.contains("youtube")) {
+      String query = lowerMsg.replaceAll(RegExp(r'\b(tolong|buka|open|luncurkan|mainkan|play|cari|video|di|on|youtube)\b|[^\w\s]'), '').trim();
+      if (query.isNotEmpty) {
+        String res = await DeviceControlService.openMediaWithQuery("YouTube", query);
+        _addMessage("jarvis", res);
+      } else {
+        String res = await DeviceControlService.launchExternalApp(
+          appScheme: "vnd.youtube://", fallbackUrl: "https://www.youtube.com", appName: "YouTube"
+        );
+        _addMessage("jarvis", res);
+      }
       return;
-    } else if (lowerMsg.startsWith("buka whatsapp") || lowerMsg.startsWith("buka wa")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
+    }
+    else if (lowerMsg.contains("whatsapp") || lowerMsg.contains("wa ")) {
       String res = await DeviceControlService.launchExternalApp(
-        appScheme: "whatsapp://",
-        fallbackUrl: "https://web.whatsapp.com",
-        appName: "WhatsApp",
+        appScheme: "whatsapp://", fallbackUrl: "https://web.whatsapp.com", appName: "WhatsApp"
       );
       _addMessage("jarvis", res);
       return;
     }
 
-    // 🔊 4. KONTROL VOLUME (MUTED / VOLUME SETTING)
-    if (lowerMsg.contains("mute hp") || lowerMsg.contains("heningkan hp") || lowerMsg.contains("matikan suara")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
-      String res = await DeviceControlService.setVolume(0.0);
-      _addMessage("jarvis", res);
-      return;
-    } else if (lowerMsg.contains("volume max") || lowerMsg.contains("volume penuh") || lowerMsg.contains("volume 100")) {
-      _addMessage("user", userMsg);
-      _controller.clear();
-      String res = await DeviceControlService.setVolume(1.0);
-      _addMessage("jarvis", res);
-      return;
-    }
-
-    // -------------------------------------------------------------
-    // 🌐 JIKA BUKAN PERINTAH LOKAL, KIRIM KE SERVER RAILWAY CLOUD
-    // -------------------------------------------------------------
-
-    _addMessage("user", userMsg.isEmpty ? "[Mengirim Gambar]" : userMsg, image: imageToSend);
-    _controller.clear();
+    // 🌐 7. CLOUD AI SERVER (Jika perintah tidak cocok dengan perintah lokal di atas)
     setState(() {
-      _selectedImage = null;
       _isLoading = true;
     });
     _nanoActivityController.forward(from: 0.0);
@@ -523,6 +596,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
 
   @override
   void dispose() {
+    _stopWakeWordStream();
     _reactorController.dispose();
     _nanoActivityController.dispose();
     _audioPlayer.dispose();
@@ -534,7 +608,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // ANIMASI HOLOGRAPHIC REACTOR BACKGROUND
         Center(
           child: AnimatedBuilder(
             animation: Listenable.merge([_reactorController, _nanoActivityController]),
@@ -549,8 +622,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
             },
           ),
         ),
-
-        // SELECTION AREA (Agar Teks Obrolan BISA DI-BLOCK/COPY MANUAL)
         SelectionArea(
           child: Column(
             children: [
@@ -607,8 +678,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                               ),
                               const SizedBox(height: 8),
                             ],
-
-                            // RENDER TEKS DENGAN MARKDOWN SUPPORT
                             MarkdownBody(
                               data: msg["text"] ?? "",
                               styleSheet: MarkdownStyleSheet(
@@ -620,10 +689,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                                 ),
                               ),
                             ),
-
                             const SizedBox(height: 8),
-
-                            // 📊 FOOTER: ACTION BAR & TIMESTAMP
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               crossAxisAlignment: CrossAxisAlignment.center,
@@ -644,9 +710,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                                       const SizedBox(width: 12),
                                       InkWell(
                                         onTap: () {
-                                          setState(() {
-                                            _messages.removeAt(index);
-                                          });
+                                          setState(() { _messages.removeAt(index); });
                                           _saveChatHistory();
                                         },
                                         child: const Row(
@@ -661,8 +725,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                                   )
                                 else
                                   const SizedBox(),
-
-                                // 🕒 TIMESTAMP KETERANGAN WAKTU
                                 Text(
                                   _formatTimestamp(msg["timestamp"]),
                                   style: TextStyle(
@@ -680,7 +742,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                   },
                 ),
               ),
-
               if (_isLoading || _isListening)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -692,7 +753,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                     ),
                   ),
                 ),
-
               SafeArea(
                 bottom: true,
                 child: Column(
@@ -726,7 +786,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
                           ],
                         ),
                       ),
-
                     Container(
                       margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -787,9 +846,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   }
 }
 
-// ==========================================
-// STARK DRAWER (M.I.N.D. PALACE ACCESS)
-// ==========================================
 class StarkDrawer extends StatelessWidget {
   const StarkDrawer({super.key});
 
@@ -844,9 +900,6 @@ class StarkDrawer extends StatelessWidget {
   }
 }
 
-// ==========================================
-// PERSISTENT WEBSOCKET SERVICE
-// ==========================================
 class JarvisWebSocketService {
   static final JarvisWebSocketService _instance = JarvisWebSocketService._internal();
   factory JarvisWebSocketService() => _instance;
@@ -872,7 +925,7 @@ class JarvisWebSocketService {
         },
         onError: (error) {
           _isConnecting = false;
-          debugPrint("📡 [WS OFFLINE]: Gagal terhubung ke server Railway. Coba lagi dalam 10s...");
+          debugPrint("📡 [WS OFFLINE]: Gagal terhubung ke server Railway...");
           Future.delayed(const Duration(seconds: 10), () => connect(onMessageReceived));
         },
         onDone: () {
@@ -892,9 +945,6 @@ class JarvisWebSocketService {
   }
 }
 
-// ==========================================
-// HOLOGRAPHIC QUANTUM PARTICLE REACTOR PAINTER
-// ==========================================
 class HolographicQuantumReactorPainter extends CustomPainter {
   final double progress;
   final double activityLevel;
@@ -922,28 +972,15 @@ class HolographicQuantumReactorPainter extends CustomPainter {
 
       Color particleColor;
       if (ringRatio < 0.35) {
-        particleColor = Color.lerp(
-          const Color(0xFFD81B60),
-          const Color(0xFF8E24AA),
-          ringRatio / 0.35,
-        )!;
+        particleColor = Color.lerp(const Color(0xFFD81B60), const Color(0xFF8E24AA), ringRatio / 0.35)!;
       } else if (ringRatio < 0.75) {
-        particleColor = Color.lerp(
-          const Color(0xFFFF6D00),
-          const Color(0xFFFFAB00),
-          (ringRatio - 0.35) / 0.4,
-        )!;
+        particleColor = Color.lerp(const Color(0xFFFF6D00), const Color(0xFFFFAB00), (ringRatio - 0.35) / 0.4)!;
       } else {
-        particleColor = Color.lerp(
-          const Color(0xFFFFD700),
-          const Color(0xFFFFF8E7),
-          (ringRatio - 0.75) / 0.25,
-        )!;
+        particleColor = Color.lerp(const Color(0xFFFFD700), const Color(0xFFFFF8E7), (ringRatio - 0.75) / 0.25)!;
       }
 
       for (int p = 0; p < pointsPerRing; p++) {
         double angle = (p / pointsPerRing) * 2 * math.pi;
-
         double wave1 = math.sin(angle * 4 + time * 2 + ringRatio * 5);
         double wave2 = math.cos(angle * 2 - time * 3 + ringRatio * 3);
         double wave3 = math.sin(angle * 6 + time * (1 + activityLevel * 2));
@@ -952,12 +989,9 @@ class HolographicQuantumReactorPainter extends CustomPainter {
         double amplitude = (8.0 + (ringRatio * 14.0)) * (1.0 + (activityLevel * 1.8));
 
         double distortedRadius = baseRadius + (totalDisplacement * amplitude);
-
         double particleX = center.dx + distortedRadius * math.cos(angle);
         double particleY = center.dy + distortedRadius * math.sin(angle);
-
         double particleSize = (1.2 + (ringRatio * 1.8)) * (1.0 + (activityLevel * 0.4));
-
         double alpha = (0.3 + (ringRatio * 0.6)) * (0.8 + (0.2 * math.sin(time + p)));
         alpha = alpha.clamp(0.05, 1.0);
 

@@ -17,7 +17,9 @@ from pypdf import PdfReader, PdfWriter
 # KONFIGURASI JEMBATAN STARK HYBRID
 # ==========================================
 CLIENT_SECRET = "STARK_OVERRIDE_SECRET_2026"
+CLIENT_SECRET_KEY = CLIENT_SECRET
 RAILWAY_SERVER_URL = "https://worker-production-792b.up.railway.app"
+SERVER_URL = RAILWAY_SERVER_URL
 
 # Threshold Notifikasi Hardware
 CPU_THRESHOLD = 90.0
@@ -235,8 +237,7 @@ def process_command(data):
 
         return {"output": "A.S.C.A.R. Diagnostic execution completed."}
 
-    # Di dalam pemrosesan command antrean lokal jarvis_client.py:
-    if command_type == "INSPECT_DART_FRONTEND":
+    elif cmd_type == "INSPECT_DART_FRONTEND":
         print("\n🩺 [CLIENT ENGINE] Menjalankan A.S.C.A.R. Dart Pre-Flight Inspector...", flush=True)
         from ascar_engine import ASCARMaintenanceEngine
         
@@ -255,6 +256,7 @@ def process_command(data):
             )
         except Exception as e:
             print(f"🚨 Gagal mengirim laporan Dart Inspector ke HUD: {e}", flush=True)
+        return {"output": "A.S.C.A.R. Dart Frontend inspection completed."}
 
     return {"output": f"Unknown command: {cmd_type}"}
 

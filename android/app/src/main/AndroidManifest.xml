@@ -10,9 +10,14 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.VIBRATE" /> <!-- TAMBAHAN: Untuk getar alarm -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- TAMBAHAN: Membangunkan layar saat alarm -->
+    
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FLASHLIGHT" /> <!-- TAMBAHAN: Ekstra aman untuk senter -->
+    
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> <!-- Duplikat di bawah sudah dihapus -->
 
     <!-- 🎤 IZIN MIKROFON & INTERNET UNTUK HUD -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -20,11 +25,13 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- Untuk Android 13+ -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-
     <!-- 2. DEKLARASI APLIKASI YANG BISA DIBUKA (Android 11 / API 30+) -->
     <queries>
+        <!-- TAMBAHAN: Explicit package name untuk memastikan canLaunchUrl merespons TRUE -->
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.whatsapp" />
+
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
@@ -69,7 +76,10 @@
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:showWhenLocked="true"  
+            android:turnScreenOn="true"> 
+            <!-- TAMBAHAN atribut showWhenLocked & turnScreenOn di atas agar UI Jarvis bisa muncul mendobrak lockscreen saat alarm berbunyi -->
             
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
@@ -81,6 +91,17 @@
             </intent-filter>
         </activity>
         
+        <!-- TAMBAHAN: Receiver bawaan flutter_local_notifications agar alarm tidak hilang waktu HP dimatikan/restart -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />    

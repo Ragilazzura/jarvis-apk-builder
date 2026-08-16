@@ -19,14 +19,14 @@ class HudNotificationService {
     );
 
     await _notificationsPlugin.initialize(
-      initSettings,
+      settings: initSettings,
       onDidReceiveNotificationResponse: (NotificationResponse details) {
         // Logika ketika notifikasi/alarm ditap oleh pengguna
       },
     );
 
-    // Minta Izin Notifikasi khusus Android 13+
-    _notificationsPlugin
+    // Minta Izin Notifikasi khusus Android 13+ (Diperbarui untuk v22+)
+    await _notificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
@@ -51,10 +51,10 @@ class HudNotificationService {
         NotificationDetails(android: androidDetails);
 
     await _notificationsPlugin.show(
-      DateTime.now().millisecond,
-      title,
-      body,
-      platformDetails,
+      id: DateTime.now().millisecond,
+      title: title,
+      body: body,
+      notificationDetails: platformDetails,
     );
   }
 
@@ -89,14 +89,12 @@ class HudNotificationService {
     int alarmId = hour * 100 + minute;
 
     await _notificationsPlugin.zonedSchedule(
-      alarmId,
-      title,
-      body,
-      tz.TZDateTime.from(scheduledDate, tz.local),
-      platformDetails,
+      id: alarmId,
+      title: title,
+      body: body,
+      scheduledDate: tz.TZDateTime.from(scheduledDate, tz.local),
+      notificationDetails: platformDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
     );
 
     String timeFormatted =

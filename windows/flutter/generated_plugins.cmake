@@ -3,17 +3,20 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  audioplayers_windows
   battery_plus
   file_selector_windows
   geolocator_windows
+  record_windows
   screen_brightness_windows
   speech_to_text_windows
   url_launcher_windows
+  volume_controller
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  flutter_local_notifications_windows
   jni
+  onnxruntime
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)
