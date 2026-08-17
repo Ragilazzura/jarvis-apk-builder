@@ -1,4 +1,5 @@
 // lib/services/jarvis_audio_streamer.dart
+import 'dart:convert'; // 👈 Tambahan import untuk mendecode pesan JSON dari server
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:record/record.dart';
@@ -10,8 +11,8 @@ class JarvisAudioStreamer {
   bool _isStreaming = false;
 
   /// Memulai streaming audio ke backend Railway untuk deteksi wake word
-  Future<void> startStreaming(VoidCallback onWakeWordDetected) async {
-    if (_isStreaming) return;
+  Future<String> startStreaming(VoidCallback onWakeWordDetected) async {
+    if (_isStreaming) return '';
 
     // Ambil URL Railway dari .env, ubah protokol dari https/http ke wss/ws
     final railwayUrl = dotenv.env['RAILWAY_SERVER_URL'] ?? "https://worker-production-792b.up.railway.app";
@@ -23,11 +24,20 @@ class JarvisAudioStreamer {
       // 1. Hubungkan ke WebSocket endpoint server Python
       _channel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws/audio_stream'));
 
-      // 2. Dengarkan sinyal balasan dari server
+      // 2. Dengarkan sinyal balasan dari server (mendukung format JSON dan string)
       _channel!.stream.listen((message) {
-        if (message.contains("wake_word_triggered") || message.contains("wake_word")) {
-          debugPrint("🚨 [WEBSOCKET] Sinyal Wake Word Diterima dari Server!");
-          onWakeWordDetected();
+        try {
+          final data = jsonDecode(message);
+          if (data["event"] == "wake_word_triggered" || data["status"] == "active") {
+            debugPrint("🚨 [WEBSOCKET] Sinyal Wake Word Diterima dari Server (JSON)!");
+            onWakeWordDetected();
+          }
+        } catch (e) {
+          // Fallback jika pesan berupa string biasa
+          if (message.contains("wake_word_triggered") || message.contains("wake_word")) {
+            debugPrint("🚨 [WEBSOCKET] Sinyal Wake Word Diterima dari Server (String)!");
+            onWakeWordDetected();
+          }
         }
       }, onError: (error) {
         debugPrint("❌ [WEBSOCKET ERROR]: $error");
@@ -50,13 +60,15 @@ class JarvisAudioStreamer {
         stream.listen((Uint8List rawData) {
           if (_channel != null && _isStreaming) {
             // Kirim potongan data biner mentah langsung ke server via WebSocket
-            debugPrint("📤 Mengirim ${rawData.length} bytes audio ke server...");
+            // (Baris debugPrint dikomentari agar terminal tidak terlalu penuh oleh log biner)
             _channel!.sink.add(rawData);
           }
         });
       }
+      return 'streaming_started';
     } catch (e) {
       debugPrint("🚨 [STREAMING EXCEPTION]: $e");
+      return 'streaming_error';
     }
   }
 

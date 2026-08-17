@@ -180,7 +180,9 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     );
 
     _loadSavedChatHistory();
-    
+
+    FlutterBackgroundService().invoke('startStreaming');
+        
     // 👈 KODE BARU: Mendengarkan sinyal Wake Word dari Background Service
     FlutterBackgroundService().on('wake_word_detected').listen((event) {
       debugPrint("🚨 WAKE WORD DARI BACKGROUND TERDETEKSI!");
