@@ -25,6 +25,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <!-- 2. DEKLARASI APLIKASI YANG BISA DIBUKA (Android 11 / API 30+) -->
     <queries>
         <!-- TAMBAHAN: Explicit package name untuk memastikan canLaunchUrl merespons TRUE -->

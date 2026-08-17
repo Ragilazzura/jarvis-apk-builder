@@ -16,10 +16,8 @@ from pypdf import PdfReader, PdfWriter
 # ==========================================
 # KONFIGURASI JEMBATAN STARK HYBRID
 # ==========================================
-CLIENT_SECRET = "STARK_OVERRIDE_SECRET_2026"
-CLIENT_SECRET_KEY = CLIENT_SECRET
-RAILWAY_SERVER_URL = "https://worker-production-792b.up.railway.app"
-SERVER_URL = RAILWAY_SERVER_URL
+CLIENT_SECRET = os.getenv("STARK_SECRET_KEY")
+RAILWAY_SERVER_URL = os.getenv("RAILWAY_SERVER_URL")
 
 # Threshold Notifikasi Hardware
 CPU_THRESHOLD = 90.0

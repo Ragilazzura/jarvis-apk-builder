@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:io';
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -12,16 +11,20 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
-import 'package:record/record.dart'; 
-import 'package:open_wake_word/open_wake_word.dart';
-
+import 'package:record/record.dart';
+import 'services/jarvis_background_service.dart';
 import 'hud_notification_service.dart';
 import 'services/telemetry_service.dart';
-import 'services/device_control_service.dart'; 
+import 'services/device_control_service.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; 
+import 'android_omni_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
   await HudNotificationService.init();
+  await initializeBackgroundService();
   runApp(const StarkHUDApp());
 }
 
@@ -177,7 +180,14 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     );
 
     _loadSavedChatHistory();
-    _initOpenWakeWordEngine();
+    
+    // 👈 KODE BARU: Mendengarkan sinyal Wake Word dari Background Service
+    FlutterBackgroundService().on('wake_word_detected').listen((event) {
+      debugPrint("🚨 WAKE WORD DARI BACKGROUND TERDETEKSI!");
+      if (mounted) {
+        _onWakeWordDetected(); // Memicu mikrofon Speech-to-Text utama
+      }
+    });
 
     JarvisWebSocketService().connect((data) {
       if (data["type"] == "text_chunk" && data["content"] != null) {
@@ -191,63 +201,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     });
 
     _checkAndTriggerMorningBriefing();
-  }
-
-  Future<void> _initOpenWakeWordEngine() async {
-    try {
-      bool success = await OpenWakeWord.init(
-        melModelAssetPath: 'assets/models/melspectrogram.onnx',
-        embModelAssetPath: 'assets/models/embedding_model.onnx',
-        wwModelAssetPath: 'assets/models/hey_jarvis_v0.1.onnx',
-      );
-
-      if (success) {
-        debugPrint("🛡️ OpenWakeWord Engine Berhasil Diinisialisasi!");
-        _startWakeWordStream();
-      } else {
-        debugPrint("🚨 Gagal menginisialisasi OpenWakeWord.");
-      }
-    } catch (e) {
-      debugPrint("🚨 Error Inisialisasi Wake Word: $e");
-    }
-  }
-
-  Future<void> _startWakeWordStream() async {
-    try {
-      if (await _audioRecorder.hasPermission()) {
-        final stream = await _audioRecorder.startStream(const RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-        ));
-
-        setState(() => _isWakeWordActive = true);
-        debugPrint("🛡️ Mendengarkan Wake Word 'Jarvis' di latar belakang...");
-
-        _micStreamSub = stream.listen((Uint8List rawData) {
-          try {
-            int validLength = rawData.lengthInBytes - (rawData.lengthInBytes % 2);
-            if (validLength <= 0) return;
-
-            Int16List pcmData = Int16List.view(
-              rawData.buffer, 
-              rawData.offsetInBytes, 
-              validLength ~/ 2,
-            );
-
-            OpenWakeWord.processAudio(pcmData);
-
-            if (OpenWakeWord.isActivated()) {
-              _onWakeWordDetected();
-            }
-          } catch (e) {
-            // Error per-frame diredam agar tidak memenuhi terminal
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint("🚨 Gagal memulai Mic Stream: $e");
-    }
   }
 
   void _onWakeWordDetected() {
@@ -401,7 +354,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
             if (mounted) {
               setState(() => _isListening = false);
               _nanoActivityController.reverse();
-              _startWakeWordStream(); 
             }
           }
         },
@@ -432,7 +384,6 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       if (mounted) setState(() => _isListening = false);
       _speech.stop();
       _nanoActivityController.reverse();
-      _startWakeWordStream();
     }
   }
 
@@ -454,15 +405,17 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       _selectedImage = null;
     });
 
-    // 🧠 1. SMART LOCAL COMMAND PARSER: SENTER
-    if (RegExp(r'\b(nyalakan|hidupkan|turn on|aktifkan|on)\b.*\b(senter|flashlight|lampu|torch)\b').hasMatch(lowerMsg) || lowerMsg == "lumos") {
-      String res = await DeviceControlService.toggleTorch(true);
-      _addMessage("jarvis", res);
-      return;
-    } else if (RegExp(r'\b(matikan|padamkan|turn off|nonaktifkan|off)\b.*\b(senter|flashlight|lampu|torch)\b').hasMatch(lowerMsg) || lowerMsg == "nox") {
-      String res = await DeviceControlService.toggleTorch(false);
-      _addMessage("jarvis", res);
-      return;
+    // ⏰ SMART FLEXIBLE: ALARM SISTEM (Hanya aktif jika ada kata alarm + ADA ANGKA JAM-NYA)
+    if (RegExp(r'\b(alarm|bangunkan|pengingat|wake me up|set an alarm)\b').hasMatch(lowerMsg)) {
+      Match? match = RegExp(r'(\d{1,2})(?:[:.](\d{2}))?').firstMatch(lowerMsg);
+      if (match != null) {
+        int hour = int.parse(match.group(1)!);
+        int minute = match.group(2) != null ? int.parse(match.group(2)!) : 0;
+        
+        String res = await AndroidOmniController.setAlarm(hour: hour, minute: minute, message: "J.A.R.V.I.S. Alarm");
+        _addMessage("jarvis", res);
+        return;
+      }
     }
 
     // ⏰ 2. SMART LOCAL COMMAND PARSER: ALARM SISTEM
@@ -471,7 +424,7 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
       if (match != null) {
         int hour = int.parse(match.group(1)!);
         int minute = int.parse(match.group(2)!);
-        String res = await DeviceControlService.setSystemAlarm(hour, minute, "J.A.R.V.I.S. Alarm");
+        String res = await AndroidOmniController.setAlarm(hour: hour, minute: minute, message: "J.A.R.V.I.S. Alarm");
         _addMessage("jarvis", res);
         return;
       } else {
@@ -519,12 +472,10 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     if (lowerMsg.contains("spotify")) {
       String query = lowerMsg.replaceAll(RegExp(r'\b(tolong|buka|open|luncurkan|mainkan|play|cari|lagu|musik|di|on|spotify)\b|[^\w\s]'), '').trim();
       if (query.isNotEmpty) {
-        String res = await DeviceControlService.openMediaWithQuery("Spotify", query);
+        String res = await AndroidOmniController.openMediaWithQuery("Spotify", query);
         _addMessage("jarvis", res);
       } else {
-        String res = await DeviceControlService.launchExternalApp(
-          appScheme: "spotify://", fallbackUrl: "https://open.spotify.com", appName: "Spotify"
-        );
+        String res = await AndroidOmniController.launchPhoneApp("Spotify");
         _addMessage("jarvis", res);
       }
       return;
@@ -532,20 +483,16 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     else if (lowerMsg.contains("youtube")) {
       String query = lowerMsg.replaceAll(RegExp(r'\b(tolong|buka|open|luncurkan|mainkan|play|cari|video|di|on|youtube)\b|[^\w\s]'), '').trim();
       if (query.isNotEmpty) {
-        String res = await DeviceControlService.openMediaWithQuery("YouTube", query);
+        String res = await AndroidOmniController.openMediaWithQuery("YouTube", query);
         _addMessage("jarvis", res);
       } else {
-        String res = await DeviceControlService.launchExternalApp(
-          appScheme: "vnd.youtube://", fallbackUrl: "https://www.youtube.com", appName: "YouTube"
-        );
+        String res = await AndroidOmniController.launchPhoneApp("YouTube");
         _addMessage("jarvis", res);
       }
       return;
     }
     else if (lowerMsg.contains("whatsapp") || lowerMsg.contains("wa ")) {
-      String res = await DeviceControlService.launchExternalApp(
-        appScheme: "whatsapp://", fallbackUrl: "https://web.whatsapp.com", appName: "WhatsApp"
-      );
+      String res = await AndroidOmniController.launchPhoneApp("WhatsApp");
       _addMessage("jarvis", res);
       return;
     }

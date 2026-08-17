@@ -20,12 +20,16 @@ import networkx as nx
 import sys
 import traceback
 import base64
+import numpy as np
+import logging
+from openwakeword.model import Model
 try:
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
 from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from gtts import gTTS
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -58,7 +62,12 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 MODEL_NAME = "gemini-3.6-flash"
 sandbox_manager = StarkSandboxManager()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("JarvisServer")
+app = FastAPI()
 IS_LOCKDOWN = False
+
+
 
 def load_agentic_squad_orchestrator():
     """Load AgenticSquadOrchestrator without crashing when the module is unavailable."""
@@ -74,7 +83,7 @@ def load_agentic_squad_orchestrator():
 
 LOCAL_COMMAND_QUEUE = []
 LOCAL_COMMAND_RESULT = None
-CLIENT_SECRET_KEY = "STARK_OVERRIDE_SECRET_2026"
+CLIENT_SECRET_KEY = os.getenv("STARK_SECRET_KEY")
 ACTIVE_HUD_CONNECTIONS = []
 
 CLEAN_GEMINI_KEY = GEMINI_API_KEY.strip().strip('"').strip("'") if GEMINI_API_KEY else ""
@@ -812,6 +821,81 @@ def read_root():
 
 class AutonomousTaskRequest(BaseModel):
     task_description: str
+
+# 1. Tambahkan struktur data Pydantic baru
+class MobileErrorReport(BaseModel):
+    feature: str
+    error_message: str
+    stack_trace: str
+    platform: str
+
+try:
+    oww_model = Model(wakeword_models=["hey_jarvis_v0.1.onnx"])
+    logger.info("🛡️ Model Wake Word berhasil dimuat di Server!")
+except Exception as e:
+    logger.error(f"🚨 Gagal memuat model: {e}")
+
+@web_app.websocket("/ws/audio_stream")
+async def audio_stream_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("📡 Klien terhubung: Streaming audio dimulai.")
+    
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            audio_array = np.frombuffer(data, dtype=np.int16)
+            prediction = oww_model.predict(audio_array)
+            
+            if prediction["hey_jarvis_v0.1"] > 0.5:
+                logger.info("🚨 'Hey Jarvis' terdeteksi di Server!")
+                await websocket.send_json({
+                    "event": "wake_word_triggered",
+                    "status": "active"
+                })
+                oww_model.reset() 
+
+    except WebSocketDisconnect:
+        logger.info("🔌 Klien terputus.")
+    except Exception as e:
+        logger.error(f"❌ Error pada stream audio: {e}")
+
+# 2. Tambahkan Endpoint penerima laporan
+@web_app.post("/client/mobile_error_report")
+async def receive_mobile_error(req: MobileErrorReport, authorization: str = Header(None)):
+    if authorization != CLIENT_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Access Denied")
+    
+    print(f"📱 [HUD ERROR DETECTED] Fitur: {req.feature}")
+    
+    # Minta J.A.R.V.I.S (LLM) menganalisis akar masalahnya
+    prompt = f"""
+    [A.S.C.A.R MOBILE DIAGNOSTIC PROTOCOL]
+    Aplikasi Android HUD Bos mengalami kegagalan saat mencoba menjalankan fitur: '{req.feature}'.
+    
+    Pesan Error dari Flutter/Android: 
+    {req.error_message}
+    
+    Stack Trace: 
+    {req.stack_trace[:1500]}
+    
+    Tugasmu:
+    Berikan analisis teknis yang tajam namun ringkas (maksimal 3-4 kalimat) mengenai kemungkinan penyebabnya (misal: kurang izin di AndroidManifest, package usang, fungsi native tidak didukung HP, dll) beserta saran perbaikannya. Gunakan gaya bahasa J.A.R.V.I.S.
+    """
+    
+    analysis_result = ask_jarvis(prompt)
+    alert_msg = f"📱 **[MOBILE HUD ERROR: {req.feature}]**\n\n{analysis_result}"
+    
+    # Broadcast hasil analisis langsung ke layar chat aplikasi HP
+    for ws in ACTIVE_HUD_CONNECTIONS:
+        try:
+            await ws.send_json({"type": "text_chunk", "content": alert_msg})
+            # Buat suara notifikasi
+            audio_b64 = generate_gtts_base64_sync(f"Laporan kegagalan sistem pada fitur {req.feature} diterima. Saya telah mengirimkan hasil analisisnya ke layar, Bos.")
+            await ws.send_json({"type": "stream_end", "audio_base64": audio_b64})
+        except:
+            pass
+            
+    return {"status": "analyzed_by_ascar"}
 
 def plan_autonomous_task_chain(task_description: str) -> list:
     planner_prompt = f"""

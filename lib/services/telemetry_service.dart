@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart'; 
 
 class TelemetryService {
-  final String baseUrl; // Contoh: "http://192.168.1.X:8080" atau URL Server Bos
+  final String baseUrl;
   final String secretKey;
 
   TelemetryService({required this.baseUrl, required this.secretKey});
@@ -27,13 +28,16 @@ class TelemetryService {
         }
         
         if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+          // 👈 Diperbarui menggunakan locationSettings (menggantikan desiredAccuracy yang deprecated)
           Position position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.low,
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.low,
+            ),
           );
           locationName = "${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)}";
         }
       } catch (e) {
-        print("⚠️ [GPS]: Gagal mengambil koordinat: $e");
+        debugPrint("⚠️ [GPS]: Gagal mengambil koordinat: $e"); // 👈 Diubah dari print ke debugPrint
       }
 
       // 3. Susun Payload Telemetri
@@ -60,11 +64,11 @@ class TelemetryService {
         final data = jsonDecode(response.body);
         return data["briefing_message"];
       } else {
-        print("🚨 [TELEMETRY ERROR]: HTTP ${response.statusCode}");
+        debugPrint("🚨 [TELEMETRY ERROR]: HTTP ${response.statusCode}"); // 👈 Diubah ke debugPrint
         return null;
       }
     } catch (e) {
-      print("🚨 [TELEMETRY EXCEPTION]: $e");
+      debugPrint("🚨 [TELEMETRY EXCEPTION]: $e"); // 👈 Diubah ke debugPrint
       return null;
     }
   }

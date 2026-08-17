@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart'; // 👈 Tambahkan ini untuk debugPrint
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class JarvisService {
-  // Ganti dengan URL domain Railway milikmu
-  static const String baseUrl = "https://web-production-xxxx.up.railway.app";
+  // URL Railway diambil aman dari file .env
+  static final String baseUrl = dotenv.env['RAILWAY_SERVER_URL'] ?? "https://worker-production-792b.up.railway.app";
 
   /// Mengirim pesan ke Jarvis FastAPI
   static Future<String> sendMessage(String message) async {
@@ -33,7 +35,7 @@ class JarvisService {
         return jsonDecode(response.body);
       }
     } catch (e) {
-      print("Error status: $e");
+      debugPrint("Error status: $e"); // 👈 Diubah dari print ke debugPrint
     }
     return {'status': 'offline', 'cpu_usage': 0, 'ram_usage': 0};
   }

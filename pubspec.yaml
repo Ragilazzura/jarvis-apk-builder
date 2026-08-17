@@ -11,13 +11,15 @@ dependencies:
   flutter:
     sdk: flutter
 
+  flutter_dotenv: ^5.1.0
+
   # 🌐 Network & Stream
   http: ^1.2.0
   web_socket_channel: ^3.0.1
 
   onnxruntime: 1.4.1
   record: 7.1.1
-  open_wake_word: ^0.1.0        # 👈 [BARU] Open-Source Wake Word Engine
+  # open_wake_word: ^0.1.0        # 👈 [BARU] Open-Source Wake Word Engine
 
   # 🔊 Audio, Speech & Volume Control
   just_audio: ^0.10.6
@@ -47,6 +49,9 @@ dependencies:
   torch_light: ^2.0.0            
   url_launcher: ^6.3.0           
 
+  flutter_background_service: ^5.0.5
+  permission_handler: ^11.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -67,4 +72,5 @@ flutter:
     - assets/jarvis.png
     - assets/models/melspectrogram.onnx    # 👈 [BARU] Model Audio Processor
     - assets/models/embedding_model.onnx   # 👈 [BARU] Model Embedding Utama
-    - assets/models/hey_jarvis_v0.1.onnx        # 👈 [BARU] Model Trigger Suara "Jarvis"
+    - assets/models/hey_jarvis_v0.1.onnx
+    - .env

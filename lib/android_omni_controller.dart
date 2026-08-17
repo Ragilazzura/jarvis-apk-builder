@@ -1,8 +1,12 @@
+// android_omni_controller.dart
 import 'package:url_launcher/url_launcher.dart';
+
+// Import A.S.C.A.R Reporter
+import 'ascar_reporter_service.dart';
 
 class AndroidOmniController {
   
-  // 1. 💬 KIRIM PESAN WHATSAPP LANGSUNG DARI HP
+  // 1. 💬 KIRIM PESAN WHATSAPP
   static Future<String> sendWhatsApp({required String phone, required String message}) async {
     String cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
     if (cleanPhone.startsWith('0')) {
@@ -20,20 +24,15 @@ class AndroidOmniController {
         await launchUrl(webUri, mode: LaunchMode.externalApplication);
         return "Membuka WhatsApp Web untuk mengirim pesan, Bos.";
       }
-    } catch (e) {
-      return "🚨 Gagal mengirim WhatsApp: $e";
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Send WhatsApp", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Gagal mengirim WhatsApp. Laporan dikirim ke A.S.C.A.R.";
     }
   }
 
-  // 2. ✉️ KIRIM SMS NATIVE HP
+  // 2. ✉️ KIRIM SMS
   static Future<String> sendSMS({required String phone, required String message}) async {
-    final Uri smsUri = Uri(
-      scheme: 'sms',
-      path: phone,
-      queryParameters: <String, String>{
-        'body': message,
-      },
-    );
+    final Uri smsUri = Uri(scheme: 'sms', path: phone, queryParameters: <String, String>{'body': message});
 
     try {
       if (await canLaunchUrl(smsUri)) {
@@ -42,8 +41,9 @@ class AndroidOmniController {
       } else {
         return "🚨 Tidak dapat membuka aplikasi SMS di HP ini.";
       }
-    } catch (e) {
-      return "🚨 Gagal memicu SMS: $e";
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Send SMS", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Gagal memicu SMS. Laporan dikirim.";
     }
   }
 
@@ -57,12 +57,13 @@ class AndroidOmniController {
       } else {
         return "🚨 Gagal melakukan panggilan telepon.";
       }
-    } catch (e) {
-      return "🚨 Error Telepon: $e";
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Make Phone Call", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Error Telepon. Laporan dikirim.";
     }
   }
 
-  // ⏰ SET ALARM NATIVE HP
+  // ⏰ 4. SET ALARM NATIVE HP
   static Future<String> setAlarm({required int hour, required int minute, required String message}) async {
     final Uri alarmUri = Uri(
       scheme: 'intent',
@@ -85,12 +86,13 @@ class AndroidOmniController {
         await launchUrl(fallbackUri);
         return "Protokol pengesetan alarm dikirim ke aplikasi Jam HP, Bos.";
       }
-    } catch (e) {
-      return "🚨 Gagal memasang alarm: $e";
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Set Alarm", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Gagal memasang alarm. Laporan dikirim.";
     }
   }
 
-  // 4. 🚀 BUKA APLIKASI DI HP (WhatsApp, Spotify, YouTube, dll)
+  // 🚀 5. BUKA APLIKASI DI HP 
   static Future<String> launchPhoneApp(String appName) async {
     String scheme = "";
     String appLower = appName.toLowerCase();
@@ -113,8 +115,35 @@ class AndroidOmniController {
       } else {
         return "🚨 Aplikasi $appName tidak ditemukan di HP ini.";
       }
-    } catch (e) {
-      return "🚨 Gagal membuka aplikasi $appName: $e";
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Launch App ($appName)", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Gagal membuka aplikasi $appName. Laporan dikirim.";
+    }
+  }
+
+  // 🎵 6. DEEP LINKING (SEARCH & AUTO PLAY - Dipindah dari DeviceControlService)
+  static Future<String> openMediaWithQuery(String platform, String query) async {
+    try {
+      Uri uri;
+      String encodedQuery = Uri.encodeComponent(query);
+
+      if (platform.toLowerCase() == "youtube") {
+        uri = Uri.parse("https://www.youtube.com/results?search_query=$encodedQuery");
+      } else if (platform.toLowerCase() == "spotify") {
+        uri = Uri.parse("spotify:search:$encodedQuery");
+      } else {
+        uri = Uri.parse("https://www.google.com/search?q=$encodedQuery");
+      }
+
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return "🎶 Mencari '$query' di $platform, Sir!";
+      } else {
+        return "🚨 Tidak dapat mengarahkan perintah ke $platform.";
+      }
+    } catch (e, stackTrace) {
+      AscarReporter.reportMobileError(featureName: "Open Media ($platform)", errorMessage: e.toString(), stackTrace: stackTrace.toString());
+      return "🚨 Deep link error. Laporan dikirim.";
     }
   }
 }
