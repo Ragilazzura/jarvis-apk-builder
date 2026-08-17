@@ -50,6 +50,7 @@ class JarvisAudioStreamer {
         stream.listen((Uint8List rawData) {
           if (_channel != null && _isStreaming) {
             // Kirim potongan data biner mentah langsung ke server via WebSocket
+            debugPrint("📤 Mengirim ${rawData.length} bytes audio ke server...");
             _channel!.sink.add(rawData);
           }
         });
