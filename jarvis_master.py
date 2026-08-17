@@ -830,7 +830,7 @@ class MobileErrorReport(BaseModel):
     platform: str
 
 try:
-    oww_model = Model(wakeword_paths=["hey_jarvis_v0.1.onnx"])
+    oww_model = Model(["hey_jarvis_v0.1.onnx"])
     logger.info("🛡️ Model Wake Word berhasil dimuat di Server!")
 except Exception as e:
     logger.error(f"🚨 Gagal memuat model: {e}")
