@@ -10,14 +10,14 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    <uses-permission android:name="android.permission.VIBRATE" /> <!-- TAMBAHAN: Untuk getar alarm -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- TAMBAHAN: Membangunkan layar saat alarm -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.FLASHLIGHT" /> <!-- TAMBAHAN: Ekstra aman untuk senter -->
+    <uses-permission android:name="android.permission.FLASHLIGHT" />
     
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> <!-- Duplikat di bawah sudah dihapus -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!-- 🎤 IZIN MIKROFON & INTERNET UNTUK HUD -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -30,7 +30,6 @@
 
     <!-- 2. DEKLARASI APLIKASI YANG BISA DIBUKA (Android 11 / API 30+) -->
     <queries>
-        <!-- TAMBAHAN: Explicit package name untuk memastikan canLaunchUrl merespons TRUE -->
         <package android:name="com.spotify.music" />
         <package android:name="com.google.android.youtube" />
         <package android:name="com.whatsapp" />
@@ -60,7 +59,6 @@
             <data android:scheme="vnd.youtube" />
         </intent>
         
-        <!-- Izin baca teks dari sistem -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
@@ -71,6 +69,7 @@
         android:label="Jarvis"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -82,7 +81,6 @@
             android:windowSoftInputMode="adjustResize"
             android:showWhenLocked="true"  
             android:turnScreenOn="true"> 
-            <!-- TAMBAHAN atribut showWhenLocked & turnScreenOn di atas agar UI Jarvis bisa muncul mendobrak lockscreen saat alarm berbunyi -->
             
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
@@ -94,7 +92,14 @@
             </intent-filter>
         </activity>
         
-        <!-- TAMBAHAN: Receiver bawaan flutter_local_notifications agar alarm tidak hilang waktu HP dimatikan/restart -->
+        <!-- 🛠️ TAMBAHAN: Service Foreground agar Background Service diizinkan OS Android -->
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:foregroundServiceType="microphone"
+            android:exported="true"
+            android:stopWithTask="false" />
+
+        <!-- Receiver bawaan flutter_local_notifications -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
             <intent-filter>
