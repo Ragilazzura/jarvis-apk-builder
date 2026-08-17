@@ -21,3 +21,5 @@ duckduckgo_search
 playwright
 pyautogui
 opencv-python-headless
+openwakeword
+numpy
