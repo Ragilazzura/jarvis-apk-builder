@@ -63,28 +63,23 @@ class AndroidOmniController {
     }
   }
 
-  // ⏰ 4. SET ALARM NATIVE HP
+  // ⏰ 4. SET ALARM NATIVE HP (DI-PERBAIKI AGAR TIDAK GAGAL PARSING INTENT)
   static Future<String> setAlarm({required int hour, required int minute, required String message}) async {
-    final Uri alarmUri = Uri(
-      scheme: 'intent',
-      path: '#Intent',
-      queryParameters: {
-        'action': 'android.intent.action.SET_ALARM',
-        'extra.android.intent.extra.HOUR': hour.toString(),
-        'extra.android.intent.extra.MINUTES': minute.toString(),
-        'extra.android.intent.extra.MESSAGE': message,
-        'extra.android.intent.extra.SKIP_UI': 'true',
-      },
-    );
+    // Menggunakan format string intent langsung agar aman ditangkap oleh Android OS
+    final String intentString = "intent://#Intent;action=android.intent.action.SET_ALARM;"
+        "i.android.intent.extra.HOUR=$hour;"
+        "i.android.intent.extra.MINUTES=$minute;"
+        "s.android.intent.extra.MESSAGE=${Uri.encodeComponent(message)};"
+        "b.android.intent.extra.SKIP_UI=true;end;";
 
     try {
+      final Uri alarmUri = Uri.parse(intentString);
+      // Memaksa peluncuran menggunakan externalApplication agar memicu sistem alarm bawaan HP
       if (await canLaunchUrl(alarmUri)) {
-        await launchUrl(alarmUri);
+        await launchUrl(alarmUri, mode: LaunchMode.externalApplication);
         return "Alarm berhasil dipasang untuk jam ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}, Bos!";
       } else {
-        final Uri fallbackUri = Uri.parse("intent://#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.HOUR=$hour;i.android.intent.extra.MINUTES=$minute;s.android.intent.extra.MESSAGE=${Uri.encodeComponent(message)};b.android.intent.extra.SKIP_UI=true;end");
-        await launchUrl(fallbackUri);
-        return "Protokol pengesetan alarm dikirim ke aplikasi Jam HP, Bos.";
+        return "🚨 Aplikasi Jam/Alarm tidak merespons di perangkat ini.";
       }
     } catch (e, stackTrace) {
       AscarReporter.reportMobileError(featureName: "Set Alarm", errorMessage: e.toString(), stackTrace: stackTrace.toString());
@@ -121,7 +116,7 @@ class AndroidOmniController {
     }
   }
 
-  // 🎵 6. DEEP LINKING (SEARCH & AUTO PLAY - Dipindah dari DeviceControlService)
+  // 🎵 6. DEEP LINKING (SEARCH & AUTO PLAY)
   static Future<String> openMediaWithQuery(String platform, String query) async {
     try {
       Uri uri;

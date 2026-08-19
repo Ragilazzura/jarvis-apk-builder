@@ -12,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from PIL import ImageGrab
 import docx
 from pypdf import PdfReader, PdfWriter
+from dotenv import load_dotenv
 
 # ==========================================
 # KONFIGURASI JEMBATAN STARK HYBRID
@@ -247,16 +248,14 @@ def process_command(data):
         # Kirim balik hasilnya ke HUD HP Bos via Proactive Alert / Alert Endpoint
         try:
             requests.post(
-                f"{SERVER_URL}/client/proactive_alert",
-                headers={"Authorization": CLIENT_SECRET_KEY, "Content-Type": "application/json"},
+                f"{RAILWAY_SERVER_URL}/client/proactive_alert",  # 👈 Diubah dari SERVER_URL ke RAILWAY_SERVER_URL
+                headers={"Authorization": CLIENT_SECRET, "Content-Type": "application/json"},  # 👈 Diubah dari CLIENT_SECRET_KEY ke CLIENT_SECRET
                 json={"alert_message": result_msg},
                 timeout=10
             )
         except Exception as e:
             print(f"🚨 Gagal mengirim laporan Dart Inspector ke HUD: {e}", flush=True)
         return {"output": "A.S.C.A.R. Dart Frontend inspection completed."}
-
-    return {"output": f"Unknown command: {cmd_type}"}
 
 # ==========================================
 # 1. OFFICE & DOCUMENT ENGINE (WORD & PDF)

@@ -62,6 +62,8 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 MODEL_NAME = "gemini-3.6-flash"
 model_path = os.path.join(BASE_DIR, "assets", "models", "hey_jarvis_v0.1.onnx")
+melspec_path = os.path.join(BASE_DIR, "assets", "models", "melspectrogram.onnx")
+embedding_path = os.path.join(BASE_DIR, "assets", "models", "embedding_models.onnx")
 sandbox_manager = StarkSandboxManager()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("JarvisServer")
@@ -831,10 +833,14 @@ class MobileErrorReport(BaseModel):
     platform: str
 
 try:
-    oww_model = Model([model_path])
-    logger.info("🛡️ Model Wake Word berhasil dimuat di Server!")
+    oww_model = Model(
+        wakeword_paths=[model_path],
+        melspectrogram_model_path=melspec_path,
+        embedding_model_path=embedding_path
+    )
+    logger.info("🛡️ Model Wake Word & Custom Resources berhasil dimuat di Server!")
 except Exception as e:
-    logger.error(f"🚨 Gagal memuat model: {e}")
+    logger.error(f"🚨 Gagal memuat model dengan custom path: {e}")
 
 @web_app.websocket("/ws/audio_stream")
 async def audio_stream_endpoint(websocket: WebSocket):
