@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:io';
 import 'dart:async';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';

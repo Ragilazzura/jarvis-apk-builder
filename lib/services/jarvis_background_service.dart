@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // 👈 Wajib ada untuk isolate background
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'jarvis_audio_streamer.dart';
 
 Future<void> initializeBackgroundService() async {
@@ -59,6 +60,13 @@ void onStart(ServiceInstance service) async {
 
   // 3. Mulai streaming audio mikrofon ke server Python Railway
   try {
+    await WakelockPlus.enable();
+    debugPrint("🔋 [WAKELOCK] Berhasil diaktifkan di background!");
+  } catch (e) {
+    debugPrint("⚠️ [WAKELOCK ERROR]: $e");
+  }
+  
+  try {
     await audioStreamer.startStreaming(() {
       debugPrint("✨ [BACKGROUND] Server mengonfirmasi Wake Word terdeteksi!");
       service.invoke('wake_word_detected');
@@ -75,6 +83,7 @@ void onStart(ServiceInstance service) async {
   });
 
   service.on('stopService').listen((event) {
+    WakelockPlus.disable();
     audioStreamer.stopStreaming();
     service.stopSelf();
   });
