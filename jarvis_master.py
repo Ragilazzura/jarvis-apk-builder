@@ -833,14 +833,11 @@ class MobileErrorReport(BaseModel):
     platform: str
 
 try:
-    oww_model = Model(
-        wakeword_model_paths=[model_path],
-        melspec_onnx_model_path=melspec_path,
-        embedding_onnx_model_path=embedding_path
-    )
-    logger.info("🛡️ Model Wake Word & Custom Resources berhasil dimuat di Server!")
+    # Cukup masukkan path model utamanya saja, biarkan openwakeword mengurus resource internalnya
+    oww_model = Model(wakeword_model_paths=[model_path])
+    logger.info("🛡️ Model Wake Word berhasil dimuat di Server!")
 except Exception as e:
-    logger.error(f"🚨 Gagal memuat model dengan custom path: {e}")
+    logger.error(f"🚨 Gagal memuat model: {e}")
 
 @web_app.websocket("/ws/audio_stream")
 async def audio_stream_endpoint(websocket: WebSocket):
