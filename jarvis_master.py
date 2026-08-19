@@ -835,7 +835,7 @@ class MobileErrorReport(BaseModel):
 try:
     oww_model = Model(
         wakeword_model_paths=[model_path],
-        melspectrogram_model_path=melspec_path,
+        melspec_onnx_model_path=melspec_path,
         embedding_model_path=embedding_path
     )
     logger.info("🛡️ Model Wake Word & Custom Resources berhasil dimuat di Server!")
