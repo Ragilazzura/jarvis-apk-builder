@@ -834,7 +834,7 @@ class MobileErrorReport(BaseModel):
 
 try:
     oww_model = Model(
-        wakeword_paths=[model_path],
+        wakeword_model_paths=[model_path],
         melspectrogram_model_path=melspec_path,
         embedding_model_path=embedding_path
     )
