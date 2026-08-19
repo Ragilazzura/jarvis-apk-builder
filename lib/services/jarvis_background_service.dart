@@ -3,7 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'jarvis_audio_streamer.dart'; // 👈 Import streamer baru kita
+import 'jarvis_audio_streamer.dart';
 
 Future<void> initializeBackgroundService() async {
   final service = FlutterBackgroundService();
@@ -48,7 +48,7 @@ void onStart(ServiceInstance service) async {
   // 1. Inisialisasi Audio Streamer
   final audioStreamer = JarvisAudioStreamer();
 
-  // 2. Mulai streaming audio mikrofon ke server Python Railway
+  // 2. Mulai streaming audio mikrofon ke server Python Railway secara otomatis
   await audioStreamer.startStreaming(() {
     // 3. Callback ini akan dieksekusi KETIKA Server Python membalas: 
     // "Hey Jarvis terdeteksi!"
@@ -56,6 +56,14 @@ void onStart(ServiceInstance service) async {
     
     // Tembakkan sinyal ke UI utama Flutter (jika aplikasi sedang terbuka/aktif)
     service.invoke('wake_word_detected');
+  });
+
+  // 👈 4. Tambahkan listener agar service dapat merespons perintah dari UI utama jika dibutuhkan
+  service.on('startStreaming').listen((event) {
+    audioStreamer.startStreaming(() {
+      debugPrint("✨ [BACKGROUND] Server mengonfirmasi Wake Word terdeteksi!");
+      service.invoke('wake_word_detected');
+    });
   });
 
   // Listener jika service dihentikan paksa
