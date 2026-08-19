@@ -849,6 +849,7 @@ async def audio_stream_endpoint(websocket: WebSocket):
             data = await websocket.receive_bytes()
             audio_array = np.frombuffer(data, dtype=np.int16)
             prediction = oww_model.predict(audio_array)
+            print(f"📥 Menerima {len(data)} bytes audio")
             
             if prediction["hey_jarvis_v0.1"] > 0.5:
                 logger.info("🚨 'Hey Jarvis' terdeteksi di Server!")
