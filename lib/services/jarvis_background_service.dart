@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // 👈 Wajib ada untuk isolate background
 import 'jarvis_audio_streamer.dart';
 
 Future<void> initializeBackgroundService() async {
@@ -39,26 +40,33 @@ Future<void> initializeBackgroundService() async {
   );
 }
 
-// WAJIB: Fungsi ini berjalan di latar belakang (Isolate terpisah)
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. Inisialisasi Audio Streamer
+  // 1. WAJIB: Load .env di isolate background agar URL Railway terbaca sempurna
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("⚠️ [BACKGROUND] Gagal memuat .env di isolate: $e");
+  }
+
+  debugPrint("🚀 [BACKGROUND] Service onStart berhasil dijalankan!");
+
+  // 2. Inisialisasi Audio Streamer
   final audioStreamer = JarvisAudioStreamer();
 
-  // 2. Mulai streaming audio mikrofon ke server Python Railway secara otomatis
-  await audioStreamer.startStreaming(() {
-    // 3. Callback ini akan dieksekusi KETIKA Server Python membalas: 
-    // "Hey Jarvis terdeteksi!"
-    debugPrint("✨ [BACKGROUND] Server mengonfirmasi Wake Word terdeteksi!");
-    
-    // Tembakkan sinyal ke UI utama Flutter (jika aplikasi sedang terbuka/aktif)
-    service.invoke('wake_word_detected');
-  });
+  // 3. Mulai streaming audio mikrofon ke server Python Railway
+  try {
+    await audioStreamer.startStreaming(() {
+      debugPrint("✨ [BACKGROUND] Server mengonfirmasi Wake Word terdeteksi!");
+      service.invoke('wake_word_detected');
+    });
+  } catch (e) {
+    debugPrint("🚨 [BACKGROUND] Gagal memulai audio streamer: $e");
+  }
 
-  // 👈 4. Tambahkan listener agar service dapat merespons perintah dari UI utama jika dibutuhkan
   service.on('startStreaming').listen((event) {
     audioStreamer.startStreaming(() {
       debugPrint("✨ [BACKGROUND] Server mengonfirmasi Wake Word terdeteksi!");
@@ -66,7 +74,6 @@ void onStart(ServiceInstance service) async {
     });
   });
 
-  // Listener jika service dihentikan paksa
   service.on('stopService').listen((event) {
     audioStreamer.stopStreaming();
     service.stopSelf();

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:io';
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -167,6 +168,10 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
+    
+    // 👈 KODE BARU: Meminta izin runtime (Mikrofon & Notifikasi) secara otomatis saat startup
+    _requestPermissions();
+
     _speech = stt.SpeechToText();
 
     _reactorController = AnimationController(
@@ -201,6 +206,21 @@ class _JarvisCoreTabState extends State<JarvisCoreTab> with TickerProviderStateM
     });
 
     _checkAndTriggerMorningBriefing();
+  }
+
+  // 👈 Tambahkan method helper ini di dalam kelas _JarvisCoreTabState
+  Future<void> _requestPermissions() async {
+    try {
+      // Meminta izin mikrofon untuk perekaman background stream & STT
+      final micStatus = await _audioRecorder.hasPermission();
+      if (!micStatus) {
+        debugPrint("⚠️ Izin mikrofon belum diberikan!");
+      } else {
+        debugPrint("✅ Izin mikrofon aktif.");
+      }
+    } catch (e) {
+      debugPrint("🚨 Error saat meminta izin: $e");
+    }
   }
 
   void _onWakeWordDetected() {
